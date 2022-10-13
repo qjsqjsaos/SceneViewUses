@@ -8,7 +8,7 @@ android {
 
     defaultConfig {
         applicationId "com.sooyeol.sceneviewuses"
-        minSdk 21
+        minSdk 24
         targetSdk 32
         versionCode 1
         versionName "1.0"
@@ -45,4 +45,7 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
+
+
+    implementation 'io.github.sceneview:arsceneview:0.9.0'
 }

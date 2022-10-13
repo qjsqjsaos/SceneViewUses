@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.navigation.fragment.findNavController
 import com.sooyeol.sceneviewuses.databinding.FragmentFirstBinding
+import io.github.sceneview.ar.node.ArModelNode
 
 /**
  * A simple [Fragment] subclass as the default destination in the navigation.

@@ -6,6 +6,12 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:layout_gravity="center"
-    android:background="@drawable/frame_border"
-    android:padding="16dp"
-    />
+    android:background="@drawable/frame_border">
+
+    <View
+        android:id="@+id/left_top_parent"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:background="@color/white" />
+
+</FrameLayout>

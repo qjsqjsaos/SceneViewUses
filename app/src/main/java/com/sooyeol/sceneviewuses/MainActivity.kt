@@ -1,23 +1,27 @@
 package com.sooyeol.sceneviewuses
 
-import android.graphics.Insets
-import android.graphics.Rect
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.os.Build
+import android.opengl.Matrix
 import android.os.Bundle
+import android.util.DisplayMetrics
+import android.util.Log
 import android.util.Size
 import android.view.View
-import android.view.WindowInsets
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Config
+import com.google.ar.core.Coordinates2d
+import com.google.ar.core.Pose
+import com.google.ar.core.TrackingState
 import com.google.ar.sceneform.collision.Ray
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.toFloat3
+import java.lang.Math.abs
+import kotlin.math.roundToInt
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
@@ -36,18 +40,24 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         mSensorManager = getSystemService(SENSOR_SERVICE) as SensorManager?
         accelerometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         magnetometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+    }
 
-        val deviceSize = getDeviceSize()
 
+    //이 시점이 바인디 sceneview의 사이즈를 얻어올 수 있는 생명주기 타이밍이다.
+    //이 때 addChild를 해준다.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
         photoFrameNode = PhotoFrameNode(
             context = this,
             lifecycle = lifecycle,
             listener = this,
-            size = deviceSize
+            size = Size(binding.sceneView.width, binding.sceneView.height)
         )
-
-        binding.sceneView.focusMode = Config.FocusMode.AUTO
-        binding.sceneView.addChild(photoFrameNode!!)
+        binding.sceneView.apply {
+            planeRenderer.isVisible = false
+            focusMode = Config.FocusMode.AUTO
+            addChild(photoFrameNode!!)
+        }
     }
 
     //노드의 각도 설정
@@ -58,10 +68,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     private var nodeChangeLandDegree = 0f
 
     override fun onFrame() {
+        val camera = binding.sceneView.cameraNode
         //노드가 있다면
         if(photoFrameNode != null) {
             photoFrameNode?.apply {
-                val camera = binding.sceneView.cameraNode
                 val ray: Ray?
 
                 quaternion = if(isLandScape) {
@@ -87,46 +97,105 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                 )
 
                 // ray에서 얼마나 떨어져 있는지 설정한다.
-                worldPosition = Position(ray?.getPoint(0.9f)?.toFloat3()!!)
+                worldPosition = Position(ray?.getPoint(1.2f)?.toFloat3()!!)
                 parent = camera
 
+                val mappedFloat = FloatArray(4)
+                binding.sceneView.currentFrame?.frame?.transformCoordinates2d(
+                    Coordinates2d.VIEW,
+                    floatArrayOf(leftTopParentPoint?.left!!.toFloat(), leftTopParentPoint?.top!!.toFloat(), leftTopParentPoint?.right!!.toFloat(), leftTopParentPoint?.bottom!!.toFloat()),
+                    Coordinates2d.VIEW,
+                    mappedFloat
+                )
+                // TODO: 문서 찾아보는게 훨씬 나음 찾아볼것 
+//                val test = binding.sceneView.cameraNode.worldToScreenPoint(mappedFloat.toFloat3().toVector3())
+//                Log.d("플롯2", test.toString())
+
+
+                //left //top //right //bottom 이 순으로 하면 됨
+
+//                Log.d("플롯", mappedFloat.map {  it.toString() }.toString())
+
+                val displayMetrics = DisplayMetrics()
+                windowManager.defaultDisplay.getMetrics(displayMetrics)
+                val height = photoFrameNode?.renderable?.view?.height
+                val width = photoFrameNode?.renderable?.view?.width
+
+                // Get projection matrix.
+
+                // Get projection matrix.
+                val projmtx = DoubleArray(16)
+                camera.camera.getProjectionMatrix(projmtx)
+
+                // Get camera matrix and draw.
+
+                // Get camera matrix and draw.
+                val viewmtx = FloatArray(16)
+                camera.camera.getViewMatrix(viewmtx)
+
+                val anchorMatrix = FloatArray(16)
+                // TODO: 여기에 앵커가 필요한데;.. 아 잘 모르겠다.. 
+                val world2screenMatrix: FloatArray =
+                    calculateWorld2CameraMatrix(anchorMatrix, viewmtx, projmtx)!!
+                val anchor_2d = world2Screen(width!!,
+                    height!!, world2screenMatrix)
+
+                Log.d("플롯", anchor_2d?.map { it.toString() }.toString())
+
+                binding.leftTopPoint.animate()
+                    .x(anchor_2d!![0].toFloat())
+                    .y(anchor_2d[1].toFloat())
+                    .setDuration(0)
+                    .start()
+
+
             }
+
+
         }
     }
+
+    fun calculateWorld2CameraMatrix(
+        modelmtx: FloatArray?,
+        viewmtx: FloatArray?,
+        prjmtx: DoubleArray?
+    ): FloatArray? {
+        val scaleFactor = 1.0f
+        val scaleMatrix = FloatArray(16)
+        val modelXscale = FloatArray(16)
+        val viewXmodelXscale = FloatArray(16)
+        val world2screenMatrix = FloatArray(16)
+        Matrix.setIdentityM(scaleMatrix, 0)
+        scaleMatrix[0] = scaleFactor
+        scaleMatrix[5] = scaleFactor
+        scaleMatrix[10] = scaleFactor
+        Matrix.multiplyMM(modelXscale, 0, modelmtx, 0, scaleMatrix, 0)
+        Matrix.multiplyMM(viewXmodelXscale, 0, viewmtx, 0, modelXscale, 0)
+        Matrix.multiplyMM(world2screenMatrix, 0, prjmtx?.map { it.toFloat() }?.toFloatArray(), 0, viewXmodelXscale, 0)
+        return world2screenMatrix
+    }
+
+    fun world2Screen(
+        screenWidth: Int,
+        screenHeight: Int,
+        world2cameraMatrix: FloatArray?
+    ): DoubleArray? {
+        val origin = floatArrayOf(0f, 0f, 0f, 1f)
+        val ndcCoord = FloatArray(4)
+        Matrix.multiplyMV(ndcCoord, 0, world2cameraMatrix, 0, origin, 0)
+        ndcCoord[0] = ndcCoord[0] / ndcCoord[3]
+        ndcCoord[1] = ndcCoord[1] / ndcCoord[3]
+        val pos_2d = doubleArrayOf(0.0, 0.0)
+        pos_2d[0] = screenWidth * ((ndcCoord[0] + 1.0) / 2.0)
+        pos_2d[1] = screenHeight * ((1.0 - ndcCoord[1]) / 2.0)
+        return pos_2d
+    }
+
 
     //사각형의 꼭지점 스크린 포인트 가져오기
     private fun getScreenPoint(widthRatio: Float = 2.0f, heightRatio: Float = 2.0f): Vector3 {
         val vw = findViewById<View>(android.R.id.content)
         return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
-    }
-
-    //디바이스의 해상도 사이즈를 가져와 준다.
-    private fun getDeviceSize(): Size {
-        val legacySize: Size
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val metrics = windowManager.currentWindowMetrics
-            val windowInsets = metrics.windowInsets
-            val insets: Insets = windowInsets.getInsetsIgnoringVisibility(
-                WindowInsets.Type.navigationBars()
-                        or WindowInsets.Type.displayCutout()
-            )
-
-            val insetsWidth: Int = insets.right + insets.left
-            val insetsHeight: Int = insets.top + insets.bottom
-            val bounds: Rect = metrics.bounds
-            legacySize = Size(
-                bounds.width() - insetsWidth,
-                bounds.height() - insetsHeight
-            )
-        } else {
-            val screenWidth = resources.displayMetrics.widthPixels
-            val screenHeight = resources.displayMetrics.heightPixels
-            legacySize = Size(
-                screenWidth,
-                screenHeight
-            )
-        }
-        return legacySize
     }
 
     private var accelerometer: Sensor? = null

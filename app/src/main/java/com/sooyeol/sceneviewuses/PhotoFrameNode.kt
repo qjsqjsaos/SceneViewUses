@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
+import android.util.Size
 import android.view.View
 import android.widget.FrameLayout
 import androidx.lifecycle.Lifecycle
@@ -12,6 +13,7 @@ import com.google.ar.sceneform.collision.Ray
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.RenderableInstance
 import com.google.ar.sceneform.rendering.ViewRenderable
+import com.google.ar.sceneform.rendering.ViewSizer
 import com.sooyeol.sceneviewuses.databinding.PhotoFrameLayoutBinding
 import io.github.sceneview.math.Position
 import io.github.sceneview.node.ViewNode
@@ -20,38 +22,33 @@ import io.github.sceneview.utils.FrameTime
 open class PhotoFrameNode(
     val context: Context,
     lifecycle: Lifecycle,
-    width: Int,
-    height: Int,
-    photoFrameBinding: PhotoFrameLayoutBinding,
-    val listener: OnFrameListener
+    val listener: OnFrameListener,
+    val size: Size
 ) : ViewNode() {
-
-    override fun setRenderable(renderable: ViewRenderable?): RenderableInstance? {
-        return super.setRenderable(renderable)
-    }
 
     init {
         isSelectable = false
-        position = Position(x = 0.0f, y = -0.75f, z = -2.0f)
-        setScale(2f)
-
-        val layoutParams = FrameLayout.LayoutParams(
-            convertPixelsToDp(width.toFloat()),
-            convertPixelsToDp(height.toFloat())
-        )
-        photoFrameBinding.photoFrameLayout.layoutParams = layoutParams
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            loadView(context, lifecycle, photoFrameBinding.photoFrameLayout.sourceLayoutResId)
-        }
+        loadView(context, lifecycle, R.layout.photo_frame_layout)
     }
 
     override fun onViewLoaded(renderableInstance: RenderableInstance, view: View) {
         super.onViewLoaded(renderableInstance, view)
+        val layoutParams = FrameLayout.LayoutParams(
+            convertPixelsToDp(size.width.toFloat()),
+            convertPixelsToDp(size.height.toFloat())
+        )
+        view.layoutParams = layoutParams
         renderableInstance.renderable.apply {
+            //그림자를 없애준다.
             isShadowCaster = false
             isShadowReceiver = false
             renderPriority = 0
+        }
+        renderable?.apply {
+            //회전 축 가운데로 (수직, 수평 둘다)
+            verticalAlignment = ViewRenderable.VerticalAlignment.CENTER
+            horizontalAlignment = ViewRenderable.HorizontalAlignment.CENTER
+            collisionShape = null
         }
     }
 

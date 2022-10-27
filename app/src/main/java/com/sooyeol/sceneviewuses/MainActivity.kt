@@ -1,24 +1,38 @@
 package com.sooyeol.sceneviewuses
 
-import android.graphics.Point
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
+import android.view.PixelCopy
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import com.bumptech.glide.Glide
 import com.google.ar.core.Config
 import com.google.ar.sceneform.collision.Ray
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import com.sooyeol.sceneviewuses.nodes.PhotoFrameNode
 import com.sooyeol.sceneviewuses.nodes.PointNode
+import io.github.sceneview.ar.ArSceneView
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.toFloat3
 import io.github.sceneview.math.toVector3
+import org.opencv.android.BaseLoaderCallback
+import org.opencv.android.LoaderCallbackInterface
+import org.opencv.android.OpenCVLoader
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.imgproc.Imgproc
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
@@ -38,6 +52,19 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     private var leftDownPoint: Point? = null
     private var rightDownPoint: Point? = null
 
+    //오픈cv를 사용할 준비가 되어있는지 아닌지
+    private var isOpenCvEnabled = false
+
+    //디바이스 방향 이넘 클래스
+    enum class OrientationType {
+        PORTRAIT,
+        INVERSE_PORTRAIT,
+        LEFT_LANDSCAPE,
+        RIGHT_LANDSCAPE
+    }
+
+    private var currentOrientationType: OrientationType = OrientationType.PORTRAIT
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -51,12 +78,50 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         magnetometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
         binding.btn.setOnClickListener {
-            perspectiveImage()
+            takePhoto()
         }
     }
 
+    //사진찍는 기능의 메서드이다.
+    private fun takePhoto() {
+        val view: ArSceneView = binding.sceneView
+
+        //sceneView 자체 전체화면을 비트맵으로 만들어준다.
+        val bitmap = Bitmap.createBitmap(
+            view.width, view.height,
+            Bitmap.Config.ARGB_8888
+        )
+
+        //PixelCopy를 통해 비트맵을 추출한다.
+        val handlerThread = HandlerThread("PixelCopier")
+        handlerThread.start()
+        // Make the request to copy.
+        PixelCopy.request(view, bitmap, { copyResult: Int ->
+            if (copyResult == PixelCopy.SUCCESS) {
+                try {
+                    //오픈시브이를 활용할 수 있는 상태가 되면,
+                    //perspectiveImage메서드에 비트맵을 넘겨준다.
+                    if (isOpenCvEnabled) {
+                        perspectiveImage(bitmap)
+                    }
+
+                } catch (e: Exception) {
+                    Log.d("에러", e.toString())
+                }
+
+            }
+            handlerThread.quitSafely()
+        }, Handler(handlerThread.looper))
+    }
+
     //이미지를 perspective 변환해준다.
-    private fun perspectiveImage() {
+    private fun perspectiveImage(bitmap: Bitmap) {
+
+        //비트맵을 담을 Mat
+        val bitmapMat = Mat()
+
+        //파라미터로 넘겨받은 비트맵을 Mat으로 변환하여 bitmapMat에 넣어준다.
+        Utils.bitmapToMat(bitmap, bitmapMat)
 
         //스크린상의 포인트를 담을 배열들이다.
         val leftTopPointArr = IntArray(2)
@@ -73,34 +138,138 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         }
 
         //포인트 x, y 값(Point) 변수에 넣어주기 넣어주기
-        leftTopPoint = Point(leftTopPointArr[0], leftTopPointArr[1])
-        rightTopPoint = Point(rightTopPointArr[0], rightTopPointArr[1])
-        leftDownPoint = Point(leftDownPointArr[0], leftDownPointArr[1])
-        rightDownPoint = Point(rightDownPointArr[0], rightDownPointArr[1])
+        leftTopPoint = Point(leftTopPointArr[0].toDouble(), leftTopPointArr[1].toDouble())
+        rightTopPoint = Point(rightTopPointArr[0].toDouble(), rightTopPointArr[1].toDouble())
+        leftDownPoint = Point(leftDownPointArr[0].toDouble(), leftDownPointArr[1].toDouble())
+        rightDownPoint = Point(rightDownPointArr[0].toDouble(), rightDownPointArr[1].toDouble())
 
-        val dw = 500.0
-        val dh = dw * 600.0 / 388.0  // 명함 사이즈
+        //이미지 사이즈(가로, 세로)를 결정한다.
+        val view: ArSceneView = binding.sceneView
+        val dw: Double = view.width.toDouble()
+        val dh: Double = view.height.toDouble() 
 
-        val srcQuad = MatOfPoint2f(
-            leftTopPoint,
-            rightTopPoint,
-            leftDownPoint,
-            rightDownPoint
-        )
+        //입력될 4개의 좌표값 (순서를 지켜준다.)
+        val srcQuad: MatOfPoint2f
 
-        val dstQuad = MatOfPoint2f(
-            Point(0.0, 0.0),
-            Point(0.0, dh - 1),
-            Point(dw - 1, dh - 1),
-            Point(dw - 1, 0.0)
-        )
+        //출력될 4개의 좌표점 지정
+        val dstQuad: MatOfPoint2f
 
+        //비트맵 각도
+        val bitmapDegree: Float
+
+        //디바이스 방향에 따른 입력값 순서를 바꾸어 준다.
+        when(currentOrientationType) {
+            OrientationType.PORTRAIT -> {
+                srcQuad = MatOfPoint2f(
+                    rightDownPoint,
+                    rightTopPoint,
+                    leftTopPoint,
+                    leftDownPoint
+                )
+
+                dstQuad = MatOfPoint2f(
+                    Point(0.0, 0.0),
+                    Point(0.0, dh),
+                    Point(dw, dh),
+                    Point(dw, 0.0)
+                )
+
+                bitmapDegree = 180f
+            }
+            OrientationType.RIGHT_LANDSCAPE -> {
+                srcQuad = MatOfPoint2f(
+                    leftDownPoint,
+                    rightDownPoint,
+                    rightTopPoint,
+                    leftTopPoint
+                )
+
+                dstQuad = MatOfPoint2f(
+                    Point(0.0, dh),
+                    Point(dw, dh),
+                    Point(dw, 0.0),
+                    Point(0.0, 0.0)
+                )
+
+                bitmapDegree = 0f
+            }
+            OrientationType.LEFT_LANDSCAPE -> {
+
+                srcQuad = MatOfPoint2f(
+                    rightTopPoint,
+                    leftTopPoint,
+                    leftDownPoint,
+                    rightDownPoint
+                )
+
+                dstQuad = MatOfPoint2f(
+                    Point(dw, 0.0),
+                    Point(0.0, 0.0),
+                    Point(0.0, dh),
+                    Point(dw, dh)
+                )
+
+                bitmapDegree = 0f
+            }
+            else -> {
+                // TODO: 이 부분 조정할 것 이상하게 검은 선이 계속나옴 이 부분을 확인할 것 
+                srcQuad = MatOfPoint2f(
+                    leftTopPoint,
+                    leftDownPoint,
+                    rightDownPoint,
+                    rightTopPoint
+                )
+
+                dstQuad = MatOfPoint2f(
+                    Point(0.0, 0.0),
+                    Point(0.0, dh),
+                    Point(dw, dh),
+                    Point(dw, 0.0)
+                )
+
+                bitmapDegree = 0f
+            }
+        }
+
+        //원근변환계산
         val perspectiveTransform = Imgproc.getPerspectiveTransform(srcQuad, dstQuad)
+        //변환한 결과값을 받을 Mat
         val newDst = Mat()
-        Imgproc.warpPerspective(src, newDst, perspectiveTransform, Size(dw, dh))
-        dst = newDst
+        //변환 계산 후 Mat에 넣어주기
+        Imgproc.warpPerspective(bitmapMat, newDst, perspectiveTransform, org.opencv.core.Size(dw, dh))
+        //변환된 값이 담긴 newDst를 비트맵으로 변경하고, 사진도 회전해서 출력
+        runOnUiThread {
+            Glide.with(this)
+                .load(newDst.toBitmap().rotate(bitmapDegree)) //180
+                .into(binding.imageView)
+            binding.imageView.visibility = View.VISIBLE
+        }
     }
 
+    //비트맵 원하는 각도로 회전하는 메서드
+    fun Bitmap.rotate(degrees: Float): Bitmap {
+        Matrix().let {
+            // set Degrees
+            it.postRotate(degrees)
+            return Bitmap.createBitmap(this, 0, 0, width, height, it, true)
+        }
+    }
+
+    //Mat 비트맵으로 만들기
+    fun Mat.toBitmap(code: Int? = null): Bitmap {
+        if (code != null) {
+            Imgproc.cvtColor(this, this, code)
+        }
+        return Bitmap.createBitmap(
+            cols(), rows(), Bitmap.Config.ARGB_8888
+        ).apply {
+            Utils.matToBitmap(this@toBitmap, this)
+        }
+    }
+
+    override fun onBackPressed() {
+        binding.imageView.visibility = View.GONE
+    }
 
     //이 시점이 바인디 sceneview의 사이즈를 얻어올 수 있는 생명주기 타이밍이다.
     //이 때 addChild를 해준다.
@@ -180,7 +349,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             )
 
             // ray에서 얼마나 떨어져 있는지 설정한다.
-            worldPosition = Position(ray?.getPoint(1.2f)?.toFloat3()!!)
+            worldPosition = Position(ray?.getPoint(1.2f)?.toFloat3()!!) // 1.2
 
             // parentNode는 camera로 한다.
             parent = camera
@@ -283,8 +452,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                     if (kotlin.math.abs(event?.values!![1]) > kotlin.math.abs(event.values[0])) {
                         //Mainly portrait
                         if (event.values[1] > 1) {
+                            currentOrientationType = OrientationType.PORTRAIT
                             //Portrait
                         } else if (event.values[1] < -1) { //Inverse portrait
+                            currentOrientationType = OrientationType.INVERSE_PORTRAIT
                         }
                         //방위각을 각도로 변환하고,
                         //해당 각도에 x값을 넣는다.
@@ -294,8 +465,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                         //Mainly landscape
                         if (event.values[0] > 1) {
                             //Landscape - right side up
+                            currentOrientationType = OrientationType.LEFT_LANDSCAPE
                         } else if (event.values[0] < -1) {
                             //Landscape - left side up
+                            currentOrientationType = OrientationType.RIGHT_LANDSCAPE
                         }
                         //롤각을 각도로 변환하고,
                         //해당 각도에 y값을 넣는다.
@@ -316,6 +489,29 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
         if(photoFrameNode != null)
             binding.sceneView.removeChild(photoFrameNode!!)
+
+        //opnecv가 초기화가 됬는지 유무에 따라 isOpenCvEnabled값을 달리 저장한다.
+        if (!OpenCVLoader.initDebug()) {
+            Log.d("OpenCV", "Internal OpenCV library not found. Using OpenCV Manager for initialization")
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback)
+        } else {
+            Log.d("OpenCV", "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+    }
+
+    private val mLoaderCallback: BaseLoaderCallback = object : BaseLoaderCallback(this) {
+        override fun onManagerConnected(status: Int) {
+            when (status) {
+                SUCCESS -> {
+                    isOpenCvEnabled = true
+                }
+                else -> {
+                    super.onManagerConnected(status)
+                    isOpenCvEnabled = false
+                }
+            }
+        }
     }
 
     override fun onPause() {

@@ -6,4 +6,6 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:layout_gravity="center"
-    android:background="@drawable/frame_border"/>
+    android:background="@drawable/frame_border"
+    android:alpha="0.7"
+    />

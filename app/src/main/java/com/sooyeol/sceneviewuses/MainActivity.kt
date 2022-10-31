@@ -1,5 +1,8 @@
 package com.sooyeol.sceneviewuses
 
+import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.hardware.Sensor
@@ -13,7 +16,11 @@ import android.util.Log
 import android.util.Size
 import android.view.PixelCopy
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.drawToBitmap
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.google.ar.core.Config
 import com.google.ar.sceneform.collision.Ray
@@ -22,9 +29,12 @@ import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import com.sooyeol.sceneviewuses.nodes.PhotoFrameNode
 import com.sooyeol.sceneviewuses.nodes.PointNode
 import io.github.sceneview.ar.ArSceneView
+import io.github.sceneview.ar.scene.PlaneRenderer
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.toFloat3
 import io.github.sceneview.math.toVector3
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.LoaderCallbackInterface
 import org.opencv.android.OpenCVLoader
@@ -33,6 +43,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.imgproc.Imgproc
+import java.util.*
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
@@ -41,12 +52,13 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
     private var photoFrameNode: PhotoFrameNode? = null
 
+    //화면 표시된 ScreenPoint(노드)
     private var leftTopNode: PointNode? = null
     private var rightTopNode: PointNode? = null
     private var leftDownNode: PointNode? = null
     private var rightDownNode: PointNode? = null
 
-    //화면 표시된 ScreenPoint
+    //화면 표시된 ScreenPoint(좌표)
     private var leftTopPoint: Point? = null
     private var rightTopPoint: Point? = null
     private var leftDownPoint: Point? = null
@@ -54,6 +66,9 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
     //오픈cv를 사용할 준비가 되어있는지 아닌지
     private var isOpenCvEnabled = false
+
+    //현재 사진을 비트맵으로 변환하는 중인지 아닌지
+    private var isFilming = false
 
     //디바이스 방향 이넘 클래스
     enum class OrientationType {
@@ -67,6 +82,11 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (!checkIsSupportedDeviceOrFinish(this)) {
+            Toast.makeText(applicationContext, "Device not supported", Toast.LENGTH_LONG)
+                .show()
+        }
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -82,9 +102,47 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         }
     }
 
+    //권한체크 설정 메서드
+    private fun checkIsSupportedDeviceOrFinish(activity: Activity): Boolean {
+        val openGlVersionString =
+            (Objects.requireNonNull(
+                activity
+                    .getSystemService(Context.ACTIVITY_SERVICE)
+            ) as ActivityManager)
+                .deviceConfigurationInfo
+                .glEsVersion
+        if (openGlVersionString.toDouble() < MIN_OPENGL_VERSION) {
+            Toast.makeText(
+                activity,
+                "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION or later",
+                Toast.LENGTH_LONG
+            )
+                .show()
+            activity.finish()
+            return false
+        }
+        return true
+    }
+
     //사진찍는 기능의 메서드이다.
     private fun takePhoto() {
-        val view: ArSceneView = binding.sceneView
+
+        ///촬영중이면 리턴
+        if (isFilming) return
+
+        isFilming = true
+
+        val view = binding.sceneView
+        //사진 찍을때 선이 나타나는 것을 방지하기 위해
+        //프레임 노드를 없애주고, 사진완료시 나타나게 한다.
+        //포인트ui들도 숨겨준다.
+        photoFrameNode?.isVisible = false
+        binding.let {
+            it.leftTopPointUi.visibility = View.GONE
+            it.rightTopPointUi.visibility = View.GONE
+            it.leftDownPointUi.visibility = View.GONE
+            it.rightDownPointUi.visibility = View.GONE
+        }
 
         //sceneView 자체 전체화면을 비트맵으로 만들어준다.
         val bitmap = Bitmap.createBitmap(
@@ -92,26 +150,29 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             Bitmap.Config.ARGB_8888
         )
 
-        //PixelCopy를 통해 비트맵을 추출한다.
-        val handlerThread = HandlerThread("PixelCopier")
-        handlerThread.start()
-        // Make the request to copy.
-        PixelCopy.request(view, bitmap, { copyResult: Int ->
-            if (copyResult == PixelCopy.SUCCESS) {
-                try {
-                    //오픈시브이를 활용할 수 있는 상태가 되면,
-                    //perspectiveImage메서드에 비트맵을 넘겨준다.
-                    if (isOpenCvEnabled) {
-                        perspectiveImage(bitmap)
+        lifecycleScope.launch {
+            delay(500)
+            //PixelCopy를 통해 비트맵을 추출한다.
+            val handlerThread = HandlerThread("PixelCopier")
+            handlerThread.start()
+            // Make the request to copy.
+            PixelCopy.request(view, bitmap, { copyResult: Int ->
+                if (copyResult == PixelCopy.SUCCESS) {
+                    try {
+                        //오픈시브이를 활용할 수 있는 상태가 되면,
+                        //perspectiveImage메서드에 비트맵을 넘겨준다.
+                        if (isOpenCvEnabled) {
+                            perspectiveImage(bitmap)
+                        }
+
+                    } catch (e: Exception) {
+                        Log.d("에러", e.toString())
                     }
 
-                } catch (e: Exception) {
-                    Log.d("에러", e.toString())
                 }
-
-            }
-            handlerThread.quitSafely()
-        }, Handler(handlerThread.looper))
+                handlerThread.quitSafely()
+            }, Handler(handlerThread.looper))
+        }
     }
 
     //이미지를 perspective 변환해준다.
@@ -131,10 +192,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
         //각 노드들의 스크린상의 포인트를 가져와서 인트 배열에 넣어준다.
         binding.let {
-            it.leftTopPoint.getLocationOnScreen(leftTopPointArr)
-            it.rightTopPoint.getLocationOnScreen(rightTopPointArr)
-            it.leftDownPoint.getLocationOnScreen(leftDownPointArr)
-            it.rightDownPoint.getLocationOnScreen(rightDownPointArr)
+            it.leftTopPointUi.getLocationOnScreen(leftTopPointArr)
+            it.rightTopPointUi.getLocationOnScreen(rightTopPointArr)
+            it.leftDownPointUi.getLocationOnScreen(leftDownPointArr)
+            it.rightDownPointUi.getLocationOnScreen(rightDownPointArr)
         }
 
         //포인트 x, y 값(Point) 변수에 넣어주기 넣어주기
@@ -146,7 +207,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         //이미지 사이즈(가로, 세로)를 결정한다.
         val view: ArSceneView = binding.sceneView
         val dw: Double = view.width.toDouble()
-        val dh: Double = view.height.toDouble() 
+        val dh: Double = view.height.toDouble()
 
         //입력될 4개의 좌표값 (순서를 지켜준다.)
         val srcQuad: MatOfPoint2f
@@ -158,7 +219,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         val bitmapDegree: Float
 
         //디바이스 방향에 따른 입력값 순서를 바꾸어 준다.
-        when(currentOrientationType) {
+        when (currentOrientationType) {
             OrientationType.PORTRAIT -> {
                 srcQuad = MatOfPoint2f(
                     rightDownPoint,
@@ -212,7 +273,6 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                 bitmapDegree = 0f
             }
             else -> {
-                // TODO: 이 부분 조정할 것 이상하게 검은 선이 계속나옴 이 부분을 확인할 것 
                 srcQuad = MatOfPoint2f(
                     leftTopPoint,
                     leftDownPoint,
@@ -236,13 +296,29 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         //변환한 결과값을 받을 Mat
         val newDst = Mat()
         //변환 계산 후 Mat에 넣어주기
-        Imgproc.warpPerspective(bitmapMat, newDst, perspectiveTransform, org.opencv.core.Size(dw, dh))
+        Imgproc.warpPerspective(
+            bitmapMat,
+            newDst,
+            perspectiveTransform,
+            org.opencv.core.Size(dw, dh)
+        )
         //변환된 값이 담긴 newDst를 비트맵으로 변경하고, 사진도 회전해서 출력
         runOnUiThread {
             Glide.with(this)
                 .load(newDst.toBitmap().rotate(bitmapDegree)) //180
                 .into(binding.imageView)
             binding.imageView.visibility = View.VISIBLE
+            //숨겨든 프레임 노드를 다시 보여주고
+            photoFrameNode?.isVisible = true
+            //없앤 포인트 ui들도 다시 보이게 한다.
+            binding.let {
+                it.leftTopPointUi.visibility = View.VISIBLE
+                it.rightTopPointUi.visibility = View.VISIBLE
+                it.leftDownPointUi.visibility = View.VISIBLE
+                it.rightDownPointUi.visibility = View.VISIBLE
+            }
+            //촬영완료
+            isFilming = false
         }
     }
 
@@ -281,6 +357,16 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             listener = this,
             size = Size(binding.sceneView.width, binding.sceneView.height)
         )
+        photoFrameNode?.let {
+            it.isSelected = false
+            it.isEditable = false
+            it.isSelectable = false
+            it.isPositionEditable = false
+            it.isRotationEditable = false
+            it.isScaleEditable = false
+
+
+        }
 
         leftTopNode = PointNode(
             context = this,
@@ -307,10 +393,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             planeRenderer.isShadowReceiver = false
             planeRenderer.isEnabled = false
             focusMode = Config.FocusMode.AUTO
+            planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
             addChild(photoFrameNode!!)
         }
     }
-
 
 
     //노드의 각도 설정
@@ -322,10 +408,19 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     private var nodeChangeLandDegree = 0f
 
     override fun onFrame() {
+        Log.d("바닥", binding.sceneView.planeRenderer.toString())
         val camera = binding.sceneView.cameraNode
         //노드가 있다면
         photoFrameNode?.apply {
             val ray: Ray?
+            // 디바이스 화면 기준으로 노드를 생성할 위치를 가져온다.
+            val screenPoint = getScreenPoint()
+
+            //화면을 마주보게 만들어주는 screenPointToRay를 사용하여, x y 값을 넣어준다.
+            ray = camera.screenPointToRay(
+                screenPoint.x, screenPoint.y
+            )
+
             quaternion = if (isLandScape) {
                 //디바이스가 가로일때
                 dev.romainguy.kotlin.math.Quaternion.fromAxisAngle(
@@ -340,49 +435,47 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                 )
             }
 
-            // 디바이스 화면 기준으로 노드를 생성할 위치를 가져온다.
-            val screenPoint = getScreenPoint()
+            worldPosition = Position(ray?.getPoint(1.2f)?.toFloat3()!!)
 
-            //화면을 마주보게 만들어주는 screenPointToRay를 사용하여, x y 값을 넣어준다.
-            ray = camera.screenPointToRay(
-                screenPoint.x, screenPoint.y
-            )
-
-            // ray에서 얼마나 떨어져 있는지 설정한다.
-            worldPosition = Position(ray?.getPoint(1.2f)?.toFloat3()!!) // 1.2
-
-            // parentNode는 camera로 한다.
             parent = camera
+
+        }?.also {
+            it.smooth(
+                quaternion = it.quaternion,
+                speed = 20.0f,
+                position = it.position
+            )
         }
+
 
         //점 노드 찍기
 
         //왼쪽 위 점
         setPointNode(
             pointNode = leftTopNode,
-            pos = Position(x = -0.00076f, y = 0.000745f, z = 0.013f),
-            movingPoint = binding.leftTopPoint
+            pos = Position(x = -0.00076f, y = 0.00075f, z = 0.013f),
+            movingPoint = binding.leftTopPointUi
         )
 
         //오른쪽 위 점
         setPointNode(
             pointNode = rightTopNode,
-            pos = Position(x = 0.000724f, y = 0.000756f, z = 0.001f),
-            movingPoint = binding.rightTopPoint
+            pos = Position(x = 0.000724f, y = 0.00077f, z = 0.001f),
+            movingPoint = binding.rightTopPointUi
         )
 
         //왼쪽 아래 점
         setPointNode(
             pointNode = leftDownNode,
-            pos = Position(x = -0.00075f, y = -0.000725f, z = 0.009f),
-            movingPoint = binding.leftDownPoint
+            pos = Position(x = -0.00077f, y = -0.00071f, z = 0.009f),
+            movingPoint = binding.leftDownPointUi
         )
 
         //오른쪽 아래 점
         setPointNode(
             pointNode = rightDownNode,
-            pos = Position(x = 0.00072f, y = -0.000735f, z = -0.005f),
-            movingPoint = binding.rightDownPoint
+            pos = Position(x = 0.00072f, y = -0.00074f, z = -0.005f),
+            movingPoint = binding.rightDownPointUi
         )
     }
 
@@ -475,6 +568,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                         nodeChangeLandDegree = -Math.toDegrees(rollY).toFloat()
                         isLandScape = true
                     }
+
                 }
             }
         }
@@ -487,12 +581,15 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         mSensorManager?.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
         mSensorManager?.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI)
 
-        if(photoFrameNode != null)
+        if (photoFrameNode != null)
             binding.sceneView.removeChild(photoFrameNode!!)
 
         //opnecv가 초기화가 됬는지 유무에 따라 isOpenCvEnabled값을 달리 저장한다.
         if (!OpenCVLoader.initDebug()) {
-            Log.d("OpenCV", "Internal OpenCV library not found. Using OpenCV Manager for initialization")
+            Log.d(
+                "OpenCV",
+                "Internal OpenCV library not found. Using OpenCV Manager for initialization"
+            )
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback)
         } else {
             Log.d("OpenCV", "OpenCV library found inside package. Using it!");
@@ -517,6 +614,11 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     override fun onPause() {
         super.onPause()
         mSensorManager?.unregisterListener(this)
+    }
+
+    companion object {
+        //오픈지엘 최소 버전
+        private const val MIN_OPENGL_VERSION = 3.0
     }
 
 }

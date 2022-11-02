@@ -5,10 +5,13 @@ import android.util.Size
 import android.view.View
 import android.widget.FrameLayout
 import androidx.lifecycle.Lifecycle
+import com.google.ar.core.HitResult
 import com.google.ar.sceneform.rendering.RenderableInstance
 import com.google.ar.sceneform.rendering.ViewRenderable
 import com.sooyeol.sceneviewuses.OnFrameListener
 import com.sooyeol.sceneviewuses.R
+import io.github.sceneview.ar.arcore.isTracking
+import io.github.sceneview.material.setEmissiveColor
 import io.github.sceneview.node.ViewNode
 import io.github.sceneview.utils.FrameTime
 
@@ -46,5 +49,4 @@ open class PhotoFrameNode(
         super.onFrame(frameTime)
         listener.onFrame()
     }
-
 }

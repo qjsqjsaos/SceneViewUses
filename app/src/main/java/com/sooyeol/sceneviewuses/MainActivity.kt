@@ -13,7 +13,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import android.util.Size
 import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
@@ -22,17 +21,27 @@ import androidx.core.view.drawToBitmap
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
+import com.google.android.filament.utils.cross
+import com.google.android.filament.utils.dot
+import com.google.android.filament.utils.eulerAngles
 import com.google.ar.core.Config
+import com.google.ar.core.Frame
+import com.google.ar.core.TrackingState
+import com.google.ar.sceneform.ArHelpers
 import com.google.ar.sceneform.collision.Ray
+import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import com.sooyeol.sceneviewuses.nodes.PhotoFrameNode
 import com.sooyeol.sceneviewuses.nodes.PointNode
+import dev.romainguy.kotlin.math.*
 import io.github.sceneview.ar.ArSceneView
+import io.github.sceneview.ar.arcore.isTracking
+import io.github.sceneview.ar.arcore.position
+import io.github.sceneview.ar.arcore.rotation
 import io.github.sceneview.ar.scene.PlaneRenderer
-import io.github.sceneview.math.Position
-import io.github.sceneview.math.toFloat3
-import io.github.sceneview.math.toVector3
+import io.github.sceneview.math.*
+
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.opencv.android.BaseLoaderCallback
@@ -50,6 +59,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
     private lateinit var binding: ActivityMainBinding
 
+    //액자 노드
     private var photoFrameNode: PhotoFrameNode? = null
 
     //화면 표시된 ScreenPoint(노드)
@@ -150,29 +160,26 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             Bitmap.Config.ARGB_8888
         )
 
-        lifecycleScope.launch {
-            delay(500)
-            //PixelCopy를 통해 비트맵을 추출한다.
-            val handlerThread = HandlerThread("PixelCopier")
-            handlerThread.start()
-            // Make the request to copy.
-            PixelCopy.request(view, bitmap, { copyResult: Int ->
-                if (copyResult == PixelCopy.SUCCESS) {
-                    try {
-                        //오픈시브이를 활용할 수 있는 상태가 되면,
-                        //perspectiveImage메서드에 비트맵을 넘겨준다.
-                        if (isOpenCvEnabled) {
-                            perspectiveImage(bitmap)
-                        }
-
-                    } catch (e: Exception) {
-                        Log.d("에러", e.toString())
+        //PixelCopy를 통해 비트맵을 추출한다.
+        val handlerThread = HandlerThread("PixelCopier")
+        handlerThread.start()
+        // Make the request to copy.
+        PixelCopy.request(view, bitmap, { copyResult: Int ->
+            if (copyResult == PixelCopy.SUCCESS) {
+                try {
+                    //오픈시브이를 활용할 수 있는 상태가 되면,
+                    //perspectiveImage메서드에 비트맵을 넘겨준다.
+                    if (isOpenCvEnabled) {
+                        perspectiveImage(bitmap)
                     }
 
+                } catch (e: Exception) {
+                    Log.d("에러", e.toString())
                 }
-                handlerThread.quitSafely()
-            }, Handler(handlerThread.looper))
-        }
+
+            }
+            handlerThread.quitSafely()
+        }, Handler(handlerThread.looper))
     }
 
     //이미지를 perspective 변환해준다.
@@ -184,25 +191,11 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         //파라미터로 넘겨받은 비트맵을 Mat으로 변환하여 bitmapMat에 넣어준다.
         Utils.bitmapToMat(bitmap, bitmapMat)
 
-        //스크린상의 포인트를 담을 배열들이다.
-        val leftTopPointArr = IntArray(2)
-        val rightTopPointArr = IntArray(2)
-        val leftDownPointArr = IntArray(2)
-        val rightDownPointArr = IntArray(2)
-
-        //각 노드들의 스크린상의 포인트를 가져와서 인트 배열에 넣어준다.
-        binding.let {
-            it.leftTopPointUi.getLocationOnScreen(leftTopPointArr)
-            it.rightTopPointUi.getLocationOnScreen(rightTopPointArr)
-            it.leftDownPointUi.getLocationOnScreen(leftDownPointArr)
-            it.rightDownPointUi.getLocationOnScreen(rightDownPointArr)
-        }
-
         //포인트 x, y 값(Point) 변수에 넣어주기 넣어주기
-        leftTopPoint = Point(leftTopPointArr[0].toDouble(), leftTopPointArr[1].toDouble())
-        rightTopPoint = Point(rightTopPointArr[0].toDouble(), rightTopPointArr[1].toDouble())
-        leftDownPoint = Point(leftDownPointArr[0].toDouble(), leftDownPointArr[1].toDouble())
-        rightDownPoint = Point(rightDownPointArr[0].toDouble(), rightDownPointArr[1].toDouble())
+        leftTopPoint = Point(binding.leftTopPointUi.x.toDouble(), binding.leftTopPointUi.y.toDouble())
+        rightTopPoint = Point(binding.rightTopPointUi.x.toDouble(), binding.rightTopPointUi.y.toDouble())
+        leftDownPoint = Point(binding.leftDownPointUi.x.toDouble(), binding.leftDownPointUi.y.toDouble())
+        rightDownPoint = Point(binding.rightDownPointUi.x.toDouble(), binding.rightDownPointUi.y.toDouble())
 
         //이미지 사이즈(가로, 세로)를 결정한다.
         val view: ArSceneView = binding.sceneView
@@ -355,17 +348,15 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             context = this,
             lifecycle = lifecycle,
             listener = this,
-            size = Size(binding.sceneView.width, binding.sceneView.height)
+            size = android.util.Size(binding.sceneView.width, binding.sceneView.height)
         )
         photoFrameNode?.let {
-            it.isSelected = false
-            it.isEditable = false
-            it.isSelectable = false
-            it.isPositionEditable = false
-            it.isRotationEditable = false
-            it.isScaleEditable = false
-
-
+//            it.isSelected = false
+//            it.isEditable = false
+//            it.isSelectable = false
+//            it.isPositionEditable = false
+//            it.isRotationEditable = false
+//            it.isScaleEditable = false
         }
 
         leftTopNode = PointNode(
@@ -396,6 +387,13 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
             addChild(photoFrameNode!!)
         }
+
+        //이렇게 설정해두면, onResume상태에서도 노드가 중복되어 그려지지 않는다.
+        binding.sceneView.arSessionConfig?.apply {
+            cloudAnchorMode = Config.CloudAnchorMode.ENABLED
+            planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+            updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+        }
     }
 
 
@@ -408,75 +406,78 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     private var nodeChangeLandDegree = 0f
 
     override fun onFrame() {
-        Log.d("바닥", binding.sceneView.planeRenderer.toString())
-        val camera = binding.sceneView.cameraNode
-        //노드가 있다면
-        photoFrameNode?.apply {
-            val ray: Ray?
-            // 디바이스 화면 기준으로 노드를 생성할 위치를 가져온다.
-            val screenPoint = getScreenPoint()
 
-            //화면을 마주보게 만들어주는 screenPointToRay를 사용하여, x y 값을 넣어준다.
-            ray = camera.screenPointToRay(
-                screenPoint.x, screenPoint.y
-            )
+        //하나의 플레인을 완전히 추적했는지
+        val isTrackingPlane = binding.sceneView.arSession?.isTrackingPlane
 
-            quaternion = if (isLandScape) {
-                //디바이스가 가로일때
-                dev.romainguy.kotlin.math.Quaternion.fromAxisAngle(
-                    Vector3(0f, 1f, 0f).toFloat3(),
-                    nodeChangeLandDegree
+        if (isTrackingPlane == true) {
+            val camera = binding.sceneView.cameraNode
+
+            //노드가 있다면
+            photoFrameNode?.apply {
+
+
+                val center = binding.sceneView.currentFrame?.frame?.screenCenter()
+                val hitTest = binding.sceneView.currentFrame?.frame?.hitTest(
+                    center?.x ?: 0f, center?.y ?: 0f
                 )
-            } else {
-                //디바이스가 세로일때
-                dev.romainguy.kotlin.math.Quaternion.fromAxisAngle(
-                    Vector3(1f, 0f, 0f).toFloat3(),
-                    nodeChangePortDegree
-                )
+                val hasTestIterator = hitTest?.iterator()
+
+                if(hasTestIterator?.hasNext() == true) {
+                    val hitResult = hasTestIterator.next()
+                    position = hitResult.hitPose.position
+                    var cameraAngle = camera.rotation.toQuaternion().toEulerAngles()
+                    //node.eulerAngles = SCNVector3(x: -.pi / 2, y: cameraAngles.y + cameraAngles.z + .pi / 2, z: 0)
+
+                    rotation = Rotation(
+                        x = -90f,
+                        y = cameraAngle.y + cameraAngle.z,
+                        z = 0f
+                    )
+
+                    // TODO:  orientation에 따라 값 조절해야 할듯
+
+                    Log.d("로테", cameraAngle.toString())
+                }
             }
 
-            worldPosition = Position(ray?.getPoint(1.2f)?.toFloat3()!!)
 
-            parent = camera
+            //점 노드 찍기
 
-        }?.also {
-            it.smooth(
-                quaternion = it.quaternion,
-                speed = 20.0f,
-                position = it.position
+            //왼쪽 위 점
+            setPointNode(
+                pointNode = leftTopNode,
+                pos = Position(x = -0.00076f, y = 0.00075f, z = 0.013f),
+                movingPoint = binding.leftTopPointUi
+            )
+
+            //오른쪽 위 점
+            setPointNode(
+                pointNode = rightTopNode,
+                pos = Position(x = 0.000724f, y = 0.00077f, z = 0.001f),
+                movingPoint = binding.rightTopPointUi
+            )
+
+            //왼쪽 아래 점
+            setPointNode(
+                pointNode = leftDownNode,
+                pos = Position(x = -0.00077f, y = -0.00071f, z = 0.009f),
+                movingPoint = binding.leftDownPointUi
+            )
+
+            //오른쪽 아래 점
+            setPointNode(
+                pointNode = rightDownNode,
+                pos = Position(x = 0.00072f, y = -0.00074f, z = -0.005f),
+                movingPoint = binding.rightDownPointUi
             )
         }
 
+    }
 
-        //점 노드 찍기
-
-        //왼쪽 위 점
-        setPointNode(
-            pointNode = leftTopNode,
-            pos = Position(x = -0.00076f, y = 0.00075f, z = 0.013f),
-            movingPoint = binding.leftTopPointUi
-        )
-
-        //오른쪽 위 점
-        setPointNode(
-            pointNode = rightTopNode,
-            pos = Position(x = 0.000724f, y = 0.00077f, z = 0.001f),
-            movingPoint = binding.rightTopPointUi
-        )
-
-        //왼쪽 아래 점
-        setPointNode(
-            pointNode = leftDownNode,
-            pos = Position(x = -0.00077f, y = -0.00071f, z = 0.009f),
-            movingPoint = binding.leftDownPointUi
-        )
-
-        //오른쪽 아래 점
-        setPointNode(
-            pointNode = rightDownNode,
-            pos = Position(x = 0.00072f, y = -0.00074f, z = -0.005f),
-            movingPoint = binding.rightDownPointUi
-        )
+    private fun Frame.screenCenter(): Vector3 {
+        val vw = findViewById<View>(android.R.id.content)
+        return Vector3(vw.width / 2f, vw.height / 2f, 0f)
     }
 
     //포인트 노드 부모 노드안에서 원하는 위치에 렌더 시키기
@@ -536,7 +537,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                 //방위각 x값 얻기
                 val azimuthX = orientation[1].toDouble()
                 //경사각 z값 얻기
-//                val pitchZ = orientation[0].toDouble()
+                val pitchZ = orientation[0].toDouble()
                 //롤각 y값 얻기
                 val rollY = orientation[2].toDouble()
 
@@ -552,7 +553,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                         }
                         //방위각을 각도로 변환하고,
                         //해당 각도에 x값을 넣는다.
-                        nodeChangePortDegree = Math.toDegrees(azimuthX).toFloat()
+                        nodeChangePortDegree = Math.toDegrees(rollY).toFloat()
                         isLandScape = false
                     } else {
                         //Mainly landscape
@@ -581,8 +582,6 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         mSensorManager?.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
         mSensorManager?.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI)
 
-        if (photoFrameNode != null)
-            binding.sceneView.removeChild(photoFrameNode!!)
 
         //opnecv가 초기화가 됬는지 유무에 따라 isOpenCvEnabled값을 달리 저장한다.
         if (!OpenCVLoader.initDebug()) {
@@ -596,6 +595,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
     }
+
 
     private val mLoaderCallback: BaseLoaderCallback = object : BaseLoaderCallback(this) {
         override fun onManagerConnected(status: Int) {

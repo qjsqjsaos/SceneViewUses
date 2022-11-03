@@ -21,9 +21,8 @@ import androidx.core.view.drawToBitmap
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
-import com.google.android.filament.utils.cross
-import com.google.android.filament.utils.dot
-import com.google.android.filament.utils.eulerAngles
+import com.google.android.filament.utils.*
+import com.google.android.filament.utils.Float3
 import com.google.ar.core.Config
 import com.google.ar.core.Frame
 import com.google.ar.core.TrackingState
@@ -53,6 +52,7 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.imgproc.Imgproc
 import java.util.*
+import kotlin.math.abs
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
@@ -192,10 +192,14 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         Utils.bitmapToMat(bitmap, bitmapMat)
 
         //포인트 x, y 값(Point) 변수에 넣어주기 넣어주기
-        leftTopPoint = Point(binding.leftTopPointUi.x.toDouble(), binding.leftTopPointUi.y.toDouble())
-        rightTopPoint = Point(binding.rightTopPointUi.x.toDouble(), binding.rightTopPointUi.y.toDouble())
-        leftDownPoint = Point(binding.leftDownPointUi.x.toDouble(), binding.leftDownPointUi.y.toDouble())
-        rightDownPoint = Point(binding.rightDownPointUi.x.toDouble(), binding.rightDownPointUi.y.toDouble())
+        leftTopPoint =
+            Point(binding.leftTopPointUi.x.toDouble(), binding.leftTopPointUi.y.toDouble())
+        rightTopPoint =
+            Point(binding.rightTopPointUi.x.toDouble(), binding.rightTopPointUi.y.toDouble())
+        leftDownPoint =
+            Point(binding.leftDownPointUi.x.toDouble(), binding.leftDownPointUi.y.toDouble())
+        rightDownPoint =
+            Point(binding.rightDownPointUi.x.toDouble(), binding.rightDownPointUi.y.toDouble())
 
         //이미지 사이즈(가로, 세로)를 결정한다.
         val view: ArSceneView = binding.sceneView
@@ -405,41 +409,75 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     //가로일때
     private var nodeChangeLandDegree = 0f
 
+    private var testDegree = 0f
+
     override fun onFrame() {
 
         //하나의 플레인을 완전히 추적했는지
         val isTrackingPlane = binding.sceneView.arSession?.isTrackingPlane
 
         if (isTrackingPlane == true) {
-            val camera = binding.sceneView.cameraNode
-
             //노드가 있다면
             photoFrameNode?.apply {
 
-
                 val center = binding.sceneView.currentFrame?.frame?.screenCenter()
+
                 val hitTest = binding.sceneView.currentFrame?.frame?.hitTest(
                     center?.x ?: 0f, center?.y ?: 0f
                 )
+
                 val hasTestIterator = hitTest?.iterator()
 
-                if(hasTestIterator?.hasNext() == true) {
+                if (hasTestIterator?.hasNext() == true) {
                     val hitResult = hasTestIterator.next()
                     position = hitResult.hitPose.position
-                    var cameraAngle = camera.rotation.toQuaternion().toEulerAngles()
+                    val camera = binding.sceneView.cameraNode
+                    val cameraAngle = camera.quaternion.toEulerAngles()
                     //node.eulerAngles = SCNVector3(x: -.pi / 2, y: cameraAngles.y + cameraAngles.z + .pi / 2, z: 0)
 
-                    rotation = Rotation(
-                        x = -90f,
-                        y = cameraAngle.y + cameraAngle.z,
-                        z = 0f
+//                    testDegree = if(isLandScape) cameraAngle.z + cameraAngle.x else cameraAngle.y + cameraAngle.z
+//                    cameraAngle.x = -90f
+//                    cameraAngle.y = 0f
+//                    cameraAngle.z = -binding.sceneView.cameraNode.quaternion.toEulerAngles().z
+//                    if (isLandScape) abs(cameraAngle.z) else cameraAngle.z + cameraAngle.y,
+
+                    //고정되어 누워있는 쿼터니언(세로)
+                    val q1 = Quaternion.axisAngle(
+                        Vector3(1f, 0f, 0f),
+                        -90f
                     )
 
-                    // TODO:  orientation에 따라 값 조절해야 할듯
+                    val sum = cameraAngle.z + cameraAngle.y
 
-                    Log.d("로테", cameraAngle.toString())
+                    //고정되어 누워있는 쿼터니언(세로)
+                    val q2 = Quaternion.axisAngle(
+                        Vector3(0f, 0f, 1f),
+                        if(zDegree > 0) cameraAngle.y else (90 - cameraAngle.y) + 90
+                    )
+                    // TODO: 360도 계산 할 것 zDegree 활용
+
+                    if(zDegree < 0) {
+                        //음수면
+
+                    }
+//
+                    val degreeQ = Quaternion.multiply(q1, q2)
+
+                    quaternion = degreeQ.toNewQuaternion()
+
+
+                    //포트레이트 일때 포트 17도 랜드 -33도
+                    //랜드스케이프일때 포트 119도 랜드 93도
+
+//                    Log.d("제트엑스 랜드", (cameraAngle.z + cameraAngle.x).toString())
+//                    Log.d("와이제트 포트", (cameraAngle.y + cameraAngle.z).toString())
+                    Log.d("와이", (zDegree).toString())
+                    //-90 ~ 90
+//                    nodeChangePortDegree = 0.0f
+//                    nodeChangeLandDegree = 0.0f
                 }
             }
+
 
 
             //점 노드 찍기
@@ -523,6 +561,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
     private var mGeomagnetic: FloatArray? = null
     private var isLandScape = false
 
+    private var xDegree = 0f
+    private var yDegree = 0f
+    private var zDegree = 0f
+
     //각도를 계속 갱신해준다.
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) mGravity = event.values
@@ -553,8 +595,9 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                         }
                         //방위각을 각도로 변환하고,
                         //해당 각도에 x값을 넣는다.
-                        nodeChangePortDegree = Math.toDegrees(rollY).toFloat()
+                        nodeChangePortDegree = Math.toDegrees(azimuthX).toFloat()
                         isLandScape = false
+
                     } else {
                         //Mainly landscape
                         if (event.values[0] > 1) {
@@ -568,8 +611,11 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                         //해당 각도에 y값을 넣는다.
                         nodeChangeLandDegree = -Math.toDegrees(rollY).toFloat()
                         isLandScape = true
-                    }
 
+                    }
+                    xDegree = Math.toDegrees(azimuthX).toFloat()
+                    yDegree = Math.toDegrees(rollY).toFloat()
+                    zDegree = Math.toDegrees(pitchZ).toFloat()
                 }
             }
         }

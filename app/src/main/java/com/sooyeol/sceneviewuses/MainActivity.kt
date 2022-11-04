@@ -1,14 +1,11 @@
 package com.sooyeol.sceneviewuses
 
+import android.R
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -17,32 +14,18 @@ import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.drawToBitmap
-import androidx.core.view.isVisible
-import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
-import com.google.android.filament.utils.*
-import com.google.android.filament.utils.Float3
 import com.google.ar.core.Config
-import com.google.ar.core.Frame
-import com.google.ar.core.TrackingState
-import com.google.ar.sceneform.ArHelpers
-import com.google.ar.sceneform.collision.Ray
-import com.google.ar.sceneform.math.Quaternion
+import com.google.ar.sceneform.CameraNode
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import com.sooyeol.sceneviewuses.nodes.PhotoFrameNode
 import com.sooyeol.sceneviewuses.nodes.PointNode
 import dev.romainguy.kotlin.math.*
+import dev.romainguy.kotlin.math.RotationsOrder
 import io.github.sceneview.ar.ArSceneView
-import io.github.sceneview.ar.arcore.isTracking
 import io.github.sceneview.ar.arcore.position
-import io.github.sceneview.ar.arcore.rotation
-import io.github.sceneview.ar.scene.PlaneRenderer
 import io.github.sceneview.math.*
-
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.LoaderCallbackInterface
 import org.opencv.android.OpenCVLoader
@@ -52,10 +35,9 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.imgproc.Imgproc
 import java.util.*
-import kotlin.math.abs
 
 
-class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
+class MainActivity : AppCompatActivity(), OnFrameListener {
 
     private lateinit var binding: ActivityMainBinding
 
@@ -100,12 +82,6 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        //센서매니저를 초기화 해주고, 실기기 디바이스의 회전값을 얻기 위해
-        //가속도계 센서 유형과 자기장 센서 유형을 가져온다.
-        mSensorManager = getSystemService(SENSOR_SERVICE) as SensorManager?
-        accelerometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        magnetometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
         binding.btn.setOnClickListener {
             takePhoto()
@@ -355,12 +331,12 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             size = android.util.Size(binding.sceneView.width, binding.sceneView.height)
         )
         photoFrameNode?.let {
-//            it.isSelected = false
-//            it.isEditable = false
-//            it.isSelectable = false
-//            it.isPositionEditable = false
-//            it.isRotationEditable = false
-//            it.isScaleEditable = false
+            it.isSelected = false
+            it.isEditable = false
+            it.isSelectable = false
+            it.isPositionEditable = false
+            it.isRotationEditable = false
+            it.isScaleEditable = false
         }
 
         leftTopNode = PointNode(
@@ -400,17 +376,6 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         }
     }
 
-
-    //노드의 각도 설정
-    //이각도는 디바이스의 위치 따라 변화하는 각도 값이다.
-    //세로일때
-    private var nodeChangePortDegree = 0f
-
-    //가로일때
-    private var nodeChangeLandDegree = 0f
-
-    private var testDegree = 0f
-
     override fun onFrame() {
 
         //하나의 플레인을 완전히 추적했는지
@@ -420,65 +385,30 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             //노드가 있다면
             photoFrameNode?.apply {
 
-                val center = binding.sceneView.currentFrame?.frame?.screenCenter()
+                val center = screenCenter()
 
                 val hitTest = binding.sceneView.currentFrame?.frame?.hitTest(
-                    center?.x ?: 0f, center?.y ?: 0f
+                    center.x, center.y
                 )
-
                 val hasTestIterator = hitTest?.iterator()
 
                 if (hasTestIterator?.hasNext() == true) {
                     val hitResult = hasTestIterator.next()
                     position = hitResult.hitPose.position
-                    val camera = binding.sceneView.cameraNode
-                    val cameraAngle = camera.quaternion.toEulerAngles()
-                    //node.eulerAngles = SCNVector3(x: -.pi / 2, y: cameraAngles.y + cameraAngles.z + .pi / 2, z: 0)
-
-//                    testDegree = if(isLandScape) cameraAngle.z + cameraAngle.x else cameraAngle.y + cameraAngle.z
-//                    cameraAngle.x = -90f
-//                    cameraAngle.y = 0f
-//                    cameraAngle.z = -binding.sceneView.cameraNode.quaternion.toEulerAngles().z
-//                    if (isLandScape) abs(cameraAngle.z) else cameraAngle.z + cameraAngle.y,
-
-                    //고정되어 누워있는 쿼터니언(세로)
-                    val q1 = Quaternion.axisAngle(
-                        Vector3(1f, 0f, 0f),
-                        -90f
+                    val cameraNode = binding.sceneView.cameraNode
+                    //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
+                    val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
+                    rotation = Rotation(
+                        x = -90f,
+                        y = cameraAngle.z + cameraAngle.y,
+                        z = 0f
                     )
 
-                    val sum = cameraAngle.z + cameraAngle.y
-
-                    //고정되어 누워있는 쿼터니언(세로)
-                    val q2 = Quaternion.axisAngle(
-                        Vector3(0f, 0f, 1f),
-                        if(zDegree > 0) cameraAngle.y else (90 - cameraAngle.y) + 90
-                    )
-                    // TODO: 360도 계산 할 것 zDegree 활용
-
-                    if(zDegree < 0) {
-                        //음수면
-
-                    }
-//
-                    val degreeQ = Quaternion.multiply(q1, q2)
-
-                    quaternion = degreeQ.toNewQuaternion()
-
-
-                    //포트레이트 일때 포트 17도 랜드 -33도
-                    //랜드스케이프일때 포트 119도 랜드 93도
-
-//                    Log.d("제트엑스 랜드", (cameraAngle.z + cameraAngle.x).toString())
-//                    Log.d("와이제트 포트", (cameraAngle.y + cameraAngle.z).toString())
-                    Log.d("와이", (zDegree).toString())
-                    //-90 ~ 90
-//                    nodeChangePortDegree = 0.0f
-//                    nodeChangeLandDegree = 0.0f
+                    //카메라와 노드의 거리 넘겨주기
+//                    getCameraFov(hitResult.distance)
+                    getCameraFov(cameraNode, hitResult.distance)
                 }
             }
-
-
 
             //점 노드 찍기
 
@@ -509,13 +439,10 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
                 pos = Position(x = 0.00072f, y = -0.00074f, z = -0.005f),
                 movingPoint = binding.rightDownPointUi
             )
+
+
         }
 
-    }
-
-    private fun Frame.screenCenter(): Vector3 {
-        val vw = findViewById<View>(android.R.id.content)
-        return Vector3(vw.width / 2f, vw.height / 2f, 0f)
     }
 
     //포인트 노드 부모 노드안에서 원하는 위치에 렌더 시키기
@@ -548,86 +475,8 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             .start()
     }
 
-    //사각형의 꼭지점 스크린 포인트 가져오기
-    private fun getScreenPoint(widthRatio: Float = 2.0f, heightRatio: Float = 2.0f): Vector3 {
-        val vw = findViewById<View>(android.R.id.content)
-        return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
-    }
-
-    private var accelerometer: Sensor? = null
-    private var magnetometer: Sensor? = null
-    private var mSensorManager: SensorManager? = null
-    private var mGravity: FloatArray? = null
-    private var mGeomagnetic: FloatArray? = null
-    private var isLandScape = false
-
-    private var xDegree = 0f
-    private var yDegree = 0f
-    private var zDegree = 0f
-
-    //각도를 계속 갱신해준다.
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) mGravity = event.values
-        if (event?.sensor?.type == Sensor.TYPE_MAGNETIC_FIELD) mGeomagnetic = event.values
-        if (mGravity != null && mGeomagnetic != null) {
-            val r = FloatArray(9)
-            val l = FloatArray(9)
-            val success = SensorManager.getRotationMatrix(r, l, mGravity, mGeomagnetic)
-            if (success) {
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(r, orientation)
-                //방위각 x값 얻기
-                val azimuthX = orientation[1].toDouble()
-                //경사각 z값 얻기
-                val pitchZ = orientation[0].toDouble()
-                //롤각 y값 얻기
-                val rollY = orientation[2].toDouble()
-
-                //실제 디바이스가 portrait인지 landscape인지 구별해주는 코드이다.
-                if (event?.sensor == accelerometer) {
-                    if (kotlin.math.abs(event?.values!![1]) > kotlin.math.abs(event.values[0])) {
-                        //Mainly portrait
-                        if (event.values[1] > 1) {
-                            currentOrientationType = OrientationType.PORTRAIT
-                            //Portrait
-                        } else if (event.values[1] < -1) { //Inverse portrait
-                            currentOrientationType = OrientationType.INVERSE_PORTRAIT
-                        }
-                        //방위각을 각도로 변환하고,
-                        //해당 각도에 x값을 넣는다.
-                        nodeChangePortDegree = Math.toDegrees(azimuthX).toFloat()
-                        isLandScape = false
-
-                    } else {
-                        //Mainly landscape
-                        if (event.values[0] > 1) {
-                            //Landscape - right side up
-                            currentOrientationType = OrientationType.LEFT_LANDSCAPE
-                        } else if (event.values[0] < -1) {
-                            //Landscape - left side up
-                            currentOrientationType = OrientationType.RIGHT_LANDSCAPE
-                        }
-                        //롤각을 각도로 변환하고,
-                        //해당 각도에 y값을 넣는다.
-                        nodeChangeLandDegree = -Math.toDegrees(rollY).toFloat()
-                        isLandScape = true
-
-                    }
-                    xDegree = Math.toDegrees(azimuthX).toFloat()
-                    yDegree = Math.toDegrees(rollY).toFloat()
-                    zDegree = Math.toDegrees(pitchZ).toFloat()
-                }
-            }
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
     override fun onResume() {
         super.onResume()
-        mSensorManager?.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
-        mSensorManager?.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI)
-
 
         //opnecv가 초기화가 됬는지 유무에 따라 isOpenCvEnabled값을 달리 저장한다.
         if (!OpenCVLoader.initDebug()) {
@@ -640,6 +489,11 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
             Log.d("OpenCV", "OpenCV library found inside package. Using it!");
             mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
+    }
+
+    private fun screenCenter(): Vector3 {
+        val vw = findViewById<View>(R.id.content)
+        return Vector3(vw.width / 2f, vw.height / 2f, 0f)
     }
 
 
@@ -657,14 +511,26 @@ class MainActivity : AppCompatActivity(), OnFrameListener, SensorEventListener {
         }
     }
 
-    override fun onPause() {
-        super.onPause()
-        mSensorManager?.unregisterListener(this)
-    }
-
     companion object {
         //오픈지엘 최소 버전
         private const val MIN_OPENGL_VERSION = 3.0
     }
 
+    private fun getCameraFov(cameraNode: CameraNode, distance: Float) {
+        val camera = cameraNode.camera
+
+        val focalLength = camera?.focalLength
+        val w = binding.sceneView.width
+        val h = binding.sceneView.height
+
+        val fovW = Math.toDegrees(2 * Math.atan(w / (focalLength?.times(2.0)!!))) * distance
+        val fovH = Math.toDegrees(2 * Math.atan(h / (focalLength * 2.0))) * distance
+
+        val scale = ((w / fovW + h / fovH) / 2).toFloat()
+
+        photoFrameNode?.scale = Scale(scale)
+
+        Log.d("길이", "가로 : $fovW")
+        Log.d("길이", "세로 : $fovH")
+    }
 }

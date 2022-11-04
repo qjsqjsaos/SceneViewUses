@@ -19,7 +19,7 @@ open class PhotoFrameNode(
     val context: Context,
     lifecycle: Lifecycle,
     val listener: OnFrameListener,
-    val size: Size
+    var size: Size
 ) : ViewNode() {
     init {
         isSelectable = false

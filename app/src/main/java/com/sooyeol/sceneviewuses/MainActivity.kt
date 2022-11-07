@@ -6,23 +6,28 @@ import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.bumptech.glide.Glide
 import com.google.ar.core.Config
+import com.google.ar.core.Plane
+import com.google.ar.core.TrackingState
 import com.google.ar.sceneform.CameraNode
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import com.sooyeol.sceneviewuses.nodes.PhotoFrameNode
 import com.sooyeol.sceneviewuses.nodes.PointNode
-import dev.romainguy.kotlin.math.*
 import dev.romainguy.kotlin.math.RotationsOrder
+import dev.romainguy.kotlin.math.eulerAngles
 import io.github.sceneview.ar.ArSceneView
 import io.github.sceneview.ar.arcore.position
 import io.github.sceneview.math.*
@@ -33,8 +38,11 @@ import org.opencv.android.Utils
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.util.*
+import kotlin.math.atan
+import kotlin.math.tan
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener {
@@ -273,7 +281,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
             bitmapMat,
             newDst,
             perspectiveTransform,
-            org.opencv.core.Size(dw, dh)
+            Size(dw, dh)
         )
         //변환된 값이 담긴 newDst를 비트맵으로 변경하고, 사진도 회전해서 출력
         runOnUiThread {
@@ -330,14 +338,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
             listener = this,
             size = android.util.Size(binding.sceneView.width, binding.sceneView.height)
         )
-        photoFrameNode?.let {
-            it.isSelected = false
-            it.isEditable = false
-            it.isSelectable = false
-            it.isPositionEditable = false
-            it.isRotationEditable = false
-            it.isScaleEditable = false
-        }
+
 
         leftTopNode = PointNode(
             context = this,
@@ -376,73 +377,70 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         }
     }
 
+    private fun getScreenPoint(widthRatio: Float = 2.0f, heightRatio: Float = 2.0f): Vector3 {
+        val vw = findViewById<View>(android.R.id.content)
+        return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
+    }
+
     override fun onFrame() {
 
         //하나의 플레인을 완전히 추적했는지
         val isTrackingPlane = binding.sceneView.arSession?.isTrackingPlane
 
         if (isTrackingPlane == true) {
+
+            Log.d("트래킹", "맞음")
             //노드가 있다면
             photoFrameNode?.apply {
 
-                val center = screenCenter()
-
-                val hitTest = binding.sceneView.currentFrame?.frame?.hitTest(
-                    center.x, center.y
+                val cameraNode = binding.sceneView.cameraNode
+                //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
+                val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
+                rotation = Rotation(
+                    x = -90f,
+                    y = cameraAngle.z + cameraAngle.y,
+                    z = 0f
                 )
-                val hasTestIterator = hitTest?.iterator()
+                val screenPoint = getScreenPoint()
+                val ray = cameraNode.screenPointToRay(
+                    screenPoint.x, screenPoint.y
+                )
 
-                if (hasTestIterator?.hasNext() == true) {
-                    val hitResult = hasTestIterator.next()
-                    position = hitResult.hitPose.position
-                    val cameraNode = binding.sceneView.cameraNode
-                    //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
-                    val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
-                    rotation = Rotation(
-                        x = -90f,
-                        y = cameraAngle.z + cameraAngle.y,
-                        z = 0f
-                    )
+                position = ray?.getPoint(1f)?.toFloat3()!!
 
-                    //카메라와 노드의 거리 넘겨주기
-//                    getCameraFov(hitResult.distance)
-                    getCameraFov(cameraNode, hitResult.distance)
-                }
+                //점 노드 찍기
+                //왼쪽 위 점
+                setPointNode(
+                    pointNode = leftTopNode,
+                    pos = Position(x = -0.00076f, y = 0.00075f, z = 0.013f),
+                    movingPoint = binding.leftTopPointUi
+                )
+
+                //오른쪽 위 점
+                setPointNode(
+                    pointNode = rightTopNode,
+                    pos = Position(x = 0.000724f, y = 0.00077f, z = 0.001f),
+                    movingPoint = binding.rightTopPointUi
+                )
+
+                //왼쪽 아래 점
+                setPointNode(
+                    pointNode = leftDownNode,
+                    pos = Position(x = -0.00077f, y = -0.00071f, z = 0.009f),
+                    movingPoint = binding.leftDownPointUi
+                )
+
+                //오른쪽 아래 점
+                setPointNode(
+                    pointNode = rightDownNode,
+                    pos = Position(x = 0.00072f, y = -0.00074f, z = -0.005f),
+                    movingPoint = binding.rightDownPointUi
+                )
+
             }
-
-            //점 노드 찍기
-
-            //왼쪽 위 점
-            setPointNode(
-                pointNode = leftTopNode,
-                pos = Position(x = -0.00076f, y = 0.00075f, z = 0.013f),
-                movingPoint = binding.leftTopPointUi
-            )
-
-            //오른쪽 위 점
-            setPointNode(
-                pointNode = rightTopNode,
-                pos = Position(x = 0.000724f, y = 0.00077f, z = 0.001f),
-                movingPoint = binding.rightTopPointUi
-            )
-
-            //왼쪽 아래 점
-            setPointNode(
-                pointNode = leftDownNode,
-                pos = Position(x = -0.00077f, y = -0.00071f, z = 0.009f),
-                movingPoint = binding.leftDownPointUi
-            )
-
-            //오른쪽 아래 점
-            setPointNode(
-                pointNode = rightDownNode,
-                pos = Position(x = 0.00072f, y = -0.00074f, z = -0.005f),
-                movingPoint = binding.rightDownPointUi
-            )
-
-
+        } else {
+            Log.d("트래킹", "실패")
         }
-
     }
 
     //포인트 노드 부모 노드안에서 원하는 위치에 렌더 시키기
@@ -516,21 +514,81 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         private const val MIN_OPENGL_VERSION = 3.0
     }
 
-    private fun getCameraFov(cameraNode: CameraNode, distance: Float) {
-        val camera = cameraNode.camera
+    private fun getHFOV(): Float {
+        val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val cameraCharacteristics = cameraManager.getCameraCharacteristics("0")
+        val sensorSize = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val focalLengths =
+            cameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+        return if (focalLengths != null && focalLengths.isNotEmpty()) {
+            (2.0f * atan(sensorSize!!.width / (2.0f * focalLengths[0])))
+        } else 1.1f
+    }
 
-        val focalLength = camera?.focalLength
+    private fun getVFOV(): Float {
+        val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val cameraCharacteristics = cameraManager.getCameraCharacteristics("0")
+        val sensorSize = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val focalLengths =
+            cameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+        return if (focalLengths != null && focalLengths.isNotEmpty()) {
+            (2.0f * atan(sensorSize!!.height / (2.0f * focalLengths[0])))
+        } else 1.1f
+    }
+
+    private fun getCameraFov(cameraNode: CameraNode, distance: Float) {
+
+
+//        val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+//        val characteristics = cameraManager.getCameraCharacteristics("0")
+//
+//        val maxFocus = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+//        val w = binding.sceneView.width
+//        val h = binding.sceneView.height
+//
+//        val fovW = Math.toDegrees(2 * atan(w / (maxFocus!![0] * 2.0)))
+//        val fovH = Math.toDegrees(2 * atan(h / (maxFocus!![0] * 2.0)))
+
+//        val width = binding.sceneView.width
+//        val height = binding.sceneView.height
+//
+//        //가로길이에 따른 포브 각도
+//        val fovW = 2 * atan(width / (2 * distance))
+//        val fovH = 2 * atan(height / (2 * distance))
+
+//        val planeWidth = tan(fovW / 2) * (2 * distance)
+//        val planeHeight = tan(fovH / 2) * (2 * distance)
+
+        val frame = binding.sceneView.arSession?.update()!!
+        val camera = frame.camera
+        val imageIntrinsics = camera.imageIntrinsics
+
+//        val focalLength = imageIntrinsics.focalLength[0]
+//        val size = imageIntrinsics.imageDimensions
         val w = binding.sceneView.width
         val h = binding.sceneView.height
 
-        val fovW = Math.toDegrees(2 * Math.atan(w / (focalLength?.times(2.0)!!))) * distance
-        val fovH = Math.toDegrees(2 * Math.atan(h / (focalLength * 2.0))) * distance
+        val fovW = Math.toDegrees(2 * Math.atan(w / (distance * 2.0)))
+        val fovH = Math.toDegrees(2 * Math.atan(h / (distance * 2.0)))
 
-        val scale = ((w / fovW + h / fovH) / 2).toFloat()
+        val planeHeight = tan(fovH / 2) * (2 * distance) / 4
+        val planeWidth = w / h * planeHeight
 
-        photoFrameNode?.scale = Scale(scale)
+        Log.d("가로", planeWidth.toString())
+        Log.d("세로", planeHeight.toString())
+        val height = if (planeHeight < -2) -2f else planeHeight
+        photoFrameNode?.scale = Scale(x = 1f, y = height.toFloat())
 
-        Log.d("길이", "가로 : $fovW")
-        Log.d("길이", "세로 : $fovH")
+        Log.d("스케일", photoFrameNode?.scale.toString())
+
+
+//        val view = photoFrameNode?.renderable?.view
+////        val planeWidth = binding.sceneView.width / binding.sceneView.height * planeHeight
+//        val layoutParams = FrameLayout.LayoutParams(
+//            planeWidth.toInt(),
+//            planeHeight.toInt()
+//        )
+//        view?.layoutParams = layoutParams
+
     }
 }

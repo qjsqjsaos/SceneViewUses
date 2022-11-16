@@ -5,16 +5,12 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Matrix
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -22,19 +18,14 @@ import com.bumptech.glide.Glide
 import com.google.ar.core.Config
 import com.google.ar.core.Plane
 import com.google.ar.core.TrackingState
-import com.google.ar.sceneform.CameraNode
-import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
 import com.sooyeol.sceneviewuses.nodes.PhotoFrameNode
 import com.sooyeol.sceneviewuses.nodes.PointNode
 import dev.romainguy.kotlin.math.*
 import io.github.sceneview.ar.ArSceneView
-import io.github.sceneview.ar.arcore.isTracking
-import io.github.sceneview.ar.arcore.position
-import io.github.sceneview.ar.arcore.rotation
+import io.github.sceneview.ar.arcore.*
 import io.github.sceneview.math.*
-import io.github.sceneview.utils.TAG
 import kotlinx.coroutines.launch
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.LoaderCallbackInterface
@@ -46,9 +37,6 @@ import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.util.*
-import kotlin.math.abs
-import kotlin.math.atan
-import kotlin.math.tan
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener {
@@ -88,7 +76,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 
     //수평과 수직의 감지 구분
 //    Config.PlaneFindingMode.HORIZONTAL
-    private var planeMode = Config.PlaneFindingMode.VERTICAL
+    private var planeMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -201,86 +189,23 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         val dh: Double = view.height.toDouble()
 
         //입력될 4개의 좌표값 (순서를 지켜준다.)
-        val srcQuad: MatOfPoint2f
+        val srcQuad: MatOfPoint2f = MatOfPoint2f(
+            rightDownPoint,
+            rightTopPoint,
+            leftTopPoint,
+            leftDownPoint
+        )
 
         //출력될 4개의 좌표점 지정
-        val dstQuad: MatOfPoint2f
+        val dstQuad: MatOfPoint2f = MatOfPoint2f(
+            Point(0.0, 0.0),
+            Point(0.0, dh),
+            Point(dw, dh),
+            Point(dw, 0.0)
+        )
 
         //비트맵 각도
-        val bitmapDegree: Float
-
-        //디바이스 방향에 따른 입력값 순서를 바꾸어 준다.
-        when (currentOrientationType) {
-            OrientationType.PORTRAIT -> {
-                srcQuad = MatOfPoint2f(
-                    rightDownPoint,
-                    rightTopPoint,
-                    leftTopPoint,
-                    leftDownPoint
-                )
-
-                dstQuad = MatOfPoint2f(
-                    Point(0.0, 0.0),
-                    Point(0.0, dh),
-                    Point(dw, dh),
-                    Point(dw, 0.0)
-                )
-
-                bitmapDegree = 180f
-            }
-            OrientationType.RIGHT_LANDSCAPE -> {
-                srcQuad = MatOfPoint2f(
-                    leftDownPoint,
-                    rightDownPoint,
-                    rightTopPoint,
-                    leftTopPoint
-                )
-
-                dstQuad = MatOfPoint2f(
-                    Point(0.0, dh),
-                    Point(dw, dh),
-                    Point(dw, 0.0),
-                    Point(0.0, 0.0)
-                )
-
-                bitmapDegree = 0f
-            }
-            OrientationType.LEFT_LANDSCAPE -> {
-
-                srcQuad = MatOfPoint2f(
-                    rightTopPoint,
-                    leftTopPoint,
-                    leftDownPoint,
-                    rightDownPoint
-                )
-
-                dstQuad = MatOfPoint2f(
-                    Point(dw, 0.0),
-                    Point(0.0, 0.0),
-                    Point(0.0, dh),
-                    Point(dw, dh)
-                )
-
-                bitmapDegree = 0f
-            }
-            else -> {
-                srcQuad = MatOfPoint2f(
-                    leftTopPoint,
-                    leftDownPoint,
-                    rightDownPoint,
-                    rightTopPoint
-                )
-
-                dstQuad = MatOfPoint2f(
-                    Point(0.0, 0.0),
-                    Point(0.0, dh),
-                    Point(dw, dh),
-                    Point(dw, 0.0)
-                )
-
-                bitmapDegree = 0f
-            }
-        }
+        val bitmapDegree: Float = 180f
 
         //원근변환계산
         val perspectiveTransform = Imgproc.getPerspectiveTransform(srcQuad, dstQuad)
@@ -315,7 +240,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 
     //비트맵 원하는 각도로 회전하는 메서드
     fun Bitmap.rotate(degrees: Float): Bitmap {
-        Matrix().let {
+        android.graphics.Matrix().let {
             // set Degrees
             it.postRotate(degrees)
             return Bitmap.createBitmap(this, 0, 0, width, height, it, true)
@@ -346,7 +271,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
             context = this,
             lifecycle = lifecycle,
             listener = this,
-            size = android.util.Size(binding.sceneView.width / 2, binding.sceneView.height / 2)
+            size = android.util.Size(binding.sceneView.width, binding.sceneView.height)
         )
 
 
@@ -407,56 +332,65 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         val hasTestIterator = hitTest?.iterator()
 
         if (hasTestIterator?.hasNext() == true) {
-
-
-            Log.d("트래킹", "맞음")
             //노드가 있다면
             photoFrameNode?.apply {
 
                 val cameraNode = binding.sceneView.cameraNode
-                //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
-                if(planeMode == Config.PlaneFindingMode.HORIZONTAL) {
-                    val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
-                    //좌표는 노드가 아닌 디바이스의 기준이다.
-                    rotation = Rotation(
-                        x = -90f,
-                        y = cameraAngle.z + cameraAngle.y,
-                        z = 0f
-                    )
-                } else {
-                    val rote = hasTestIterator.next().hitPose.extractRotation().rotation
-                    val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ) //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+                //플레인 추출하기
+                val planeObj = frame.getUpdatedTrackables(Plane::class.java)
 
-                    //플레인 추출하기
-                    val planeObj = frame.getUpdatedTrackables(Plane::class.java)
-                    val var3 = planeObj.iterator()
-                    while (var3.hasNext()) {
-                        val plane = var3.next() as Plane
-                        //바닥이 감지되고 arcore에서 추적 중인 경우
-                        if (plane.trackingState == TrackingState.TRACKING) {
+                if(planeObj.isNotEmpty()) {
 
-                            if(beforePlane == null) {
-                                beforePlane = plane
-                            } else {
+                    val plane = planeObj.last() as Plane
+                    // TODO: 마지막 플레인 가져오기 실패 ㅠㅜ
+                    //바닥이 감지되고 arcore에서 추적 중인 경우
 
+                    Log.d("타입", planeObj.size.toString())
+                    if (plane.trackingState == TrackingState.TRACKING) {
+                        if (plane.type == Plane.Type.VERTICAL) {
+                            // TODO: 버티컬과 호리즌탈 서로 구분이 잘 안됨. 구분하는 방법만 찾으면 될듯 
+                            //플레인이 벽에 생길경우
+                            val rotationOrder = RotationsOrder.ZYX
+
+                            val cameraAngle = eulerAngles(
+                                cameraNode.quaternion,
+                                rotationOrder
+                            ) //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+                            //좌표는 노드가 아닌 디바이스의 기준이다.
+
+                            val hitResult3 = hasTestIterator.iterator()
+                            while (hitResult3.hasNext()) {
+                                val hitResult = hitResult3.next()
+
+                                val hitResultRota =
+                                    hitResult.hitPose.rotation.toQuaternion(rotationOrder)
+                                        .toEulerAngles() //ZYX
+                                rotation = Rotation(
+                                    x = 0f,
+                                    y = if (hitResultRota.x < 0) hitResultRota.y + 180f else hitResultRota.y,
+                                    z = if (hitResultRota.x < 0) cameraAngle.z + 180f else cameraAngle.z,
+                                )
                             }
-
-                            plane == plane
+                        } else {
+                            //플레인이 수평면에 생길경우
+                            //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
+                            val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
+                            //좌표는 노드가 아닌 디바이스의 기준이다.
+                            rotation = Rotation(
+                                x = -90f,
+                                y = cameraAngle.z + cameraAngle.y,
+                                z = 0f
+                            )
                         }
+
+                        val screenPoint = binding.sceneView
+                        val ray = cameraNode.screenPointToRay(
+                            (screenPoint.width / 2).toFloat(),
+                            (screenPoint.height / 2).toFloat()
+                        )
+                        position = ray?.getPoint(1f)?.toFloat3()!!
                     }
-
-                    //좌표는 노드가 아닌 디바이스의 기준이다.
-                    rotation = Rotation(
-                        z = cameraAngle.z
-                    )
                 }
-
-                val screenPoint = binding.sceneView
-                val ray = cameraNode.screenPointToRay(
-                    (screenPoint.width / 2).toFloat(), (screenPoint.height / 2).toFloat()
-                )
-
-                position = ray?.getPoint(1f)?.toFloat3()!!
 
                 //점 노드 찍기
 
@@ -497,7 +431,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 
             }
         } else {
-            Log.d("트래킹", "실패")
+
         }
     }
 

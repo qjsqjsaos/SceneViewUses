@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 
     //수평과 수직의 감지 구분
 //    Config.PlaneFindingMode.HORIZONTAL
-    private var planeMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
+    private var planeMode = Config.PlaneFindingMode.VERTICAL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +91,16 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 
         binding.btn.setOnClickListener {
             takePhoto()
+        }
+
+        binding.transform.setOnClickListener {
+            isVertical = !isVertical
+
+            if(isVertical) {
+                binding.sceneView.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+            } else {
+                binding.sceneView.planeFindingMode = Config.PlaneFindingMode.VERTICAL
+            }
         }
     }
 
@@ -271,7 +281,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
             context = this,
             lifecycle = lifecycle,
             listener = this,
-            size = android.util.Size(binding.sceneView.width, binding.sceneView.height)
+            size = android.util.Size(binding.sceneView.width / 2, binding.sceneView.height / 2)
         )
 
 
@@ -317,7 +327,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
     }
 
-    private var beforePlane: Plane? = null
+    private var isVertical = true
 
     override fun onFrame() {
 
@@ -331,45 +341,77 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         )
         val hasTestIterator = hitTest?.iterator()
 
-        if (hasTestIterator?.hasNext() == true) {
             //노드가 있다면
             photoFrameNode?.apply {
 
                 val cameraNode = binding.sceneView.cameraNode
                 //플레인 추출하기
-                val planeObj = frame.getUpdatedTrackables(Plane::class.java)
+                val planeObj = frame?.getUpdatedTrackables(Plane::class.java)?.iterator()
 
-                if(planeObj.isNotEmpty()) {
+                while(planeObj?.hasNext() == true) {
+                    val plane = planeObj.next() as Plane
 
-                    val plane = planeObj.last() as Plane
-                    // TODO: 마지막 플레인 가져오기 실패 ㅠㅜ
-                    //바닥이 감지되고 arcore에서 추적 중인 경우
-
-                    Log.d("타입", planeObj.size.toString())
                     if (plane.trackingState == TrackingState.TRACKING) {
-                        if (plane.type == Plane.Type.VERTICAL) {
-                            // TODO: 버티컬과 호리즌탈 서로 구분이 잘 안됨. 구분하는 방법만 찾으면 될듯 
-                            //플레인이 벽에 생길경우
-                            val rotationOrder = RotationsOrder.ZYX
 
+                        if (isVertical) {
+//                            //플레인이 벽에 생길경우
+                            val rotationOrder = RotationsOrder.ZYX
+//
                             val cameraAngle = eulerAngles(
                                 cameraNode.quaternion,
                                 rotationOrder
                             ) //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
-                            //좌표는 노드가 아닌 디바이스의 기준이다.
+//                            //좌표는 노드가 아닌 디바이스의 기준이다.
+//
+//                            val hitResult3 = hasTestIterator.iterator()
+//                            while (hitResult3.hasNext()) {
+//                                val hitResult = hitResult3.next()
+//
+//                                val hitResultRota =
+//                                    hitResult.hitPose.rotation.toQuaternion(rotationOrder)
+//                                        .toEulerAngles() //ZYX
+//                                rotation = Rotation(
+//                                    x = 0f,
+//                                    y = if (hitResultRota.x < 0) hitResultRota.y + 180f else hitResultRota.y,
+//                                    z = if (hitResultRota.x < 0) cameraAngle.z + 180f else cameraAngle.z,
+//                                )
+//                            }
+                            if (hasTestIterator?.hasNext() == true) {
+                                val hitResult3 = hasTestIterator.iterator()
 
-                            val hitResult3 = hasTestIterator.iterator()
-                            while (hitResult3.hasNext()) {
                                 val hitResult = hitResult3.next()
 
-                                val hitResultRota =
-                                    hitResult.hitPose.rotation.toQuaternion(rotationOrder)
-                                        .toEulerAngles() //ZYX
+                                val hitPose = hitResult.hitPose
+
+                                val planePose = plane.centerPose
+
+                                position = hitPose.position
+
+//                                quaternion = com.google.ar.sceneform.math.Quaternion.multiply(
+//                                    Quaternion(
+//                                        x = 90f,
+//                                        y = planePose.quaternion.y,
+////                                        z = planePose.quaternion.z,
+////                                        w = planePose.quaternion.w
+//                                    ).toOldQuaternion(),
+//                                    Quaternion(
+//                                        x = cameraNode.quaternion.x,
+//                                        y = cameraNode.quaternion.y,
+//                                        z = cameraNode.quaternion.z,
+////                                        w = cameraNode.quaternion.w
+//                                    ).toEulerAngles().toQuaternion(RotationsOrder.XZY).toOldQuaternion()
+//                                ).toNewQuaternion()
+                                //XYZ XZY YXZ YZX ZXY ZYX
+
+
+                                // TODO: 제일 가까운 평면을 대상으로 풀어나가면 되는데.. 그게 어렵다.. 
+                                lookTowards(lookDirection = plane.centerPose.yDirection)
+
                                 rotation = Rotation(
-                                    x = 0f,
-                                    y = if (hitResultRota.x < 0) hitResultRota.y + 180f else hitResultRota.y,
-                                    z = if (hitResultRota.x < 0) cameraAngle.z + 180f else cameraAngle.z,
+                                    z = cameraAngle.z
                                 )
+//                                lookAt(plane.c, upDirection = Direction(y = 1.0f))
+
                             }
                         } else {
                             //플레인이 수평면에 생길경우
@@ -381,14 +423,16 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
                                 y = cameraAngle.z + cameraAngle.y,
                                 z = 0f
                             )
+
+                            val screenPoint = binding.sceneView
+                            val ray = cameraNode.screenPointToRay(
+                                (screenPoint.width / 2).toFloat(),
+                                (screenPoint.height / 2).toFloat()
+                            )
+                            position = ray?.getPoint(1f)?.toFloat3()!!
                         }
 
-                        val screenPoint = binding.sceneView
-                        val ray = cameraNode.screenPointToRay(
-                            (screenPoint.width / 2).toFloat(),
-                            (screenPoint.height / 2).toFloat()
-                        )
-                        position = ray?.getPoint(1f)?.toFloat3()!!
+
                     }
                 }
 
@@ -430,9 +474,6 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
                 }
 
             }
-        } else {
-
-        }
     }
 
     //포인트 노드 부모 노드안에서 원하는 위치에 렌더 시키기
@@ -479,11 +520,6 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
             Log.d("OpenCV", "OpenCV library found inside package. Using it!");
             mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
-    }
-
-    private fun screenCenter(): Vector3 {
-        val vw = findViewById<View>(R.id.content)
-        return Vector3(vw.width / 2f, vw.height / 2f, 0f)
     }
 
 

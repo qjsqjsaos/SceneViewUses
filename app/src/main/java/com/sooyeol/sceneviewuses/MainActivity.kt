@@ -1,10 +1,10 @@
 package com.sooyeol.sceneviewuses
 
-import android.R
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.opengl.Matrix
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
+
 import com.google.ar.core.Config
 import com.google.ar.core.Plane
 import com.google.ar.core.TrackingState
@@ -96,7 +97,7 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         binding.transform.setOnClickListener {
             isVertical = !isVertical
 
-            if(isVertical) {
+            if (isVertical) {
                 binding.sceneView.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
             } else {
                 binding.sceneView.planeFindingMode = Config.PlaneFindingMode.VERTICAL
@@ -341,26 +342,21 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         )
         val hasTestIterator = hitTest?.iterator()
 
-            //노드가 있다면
-            photoFrameNode?.apply {
+        //노드가 있다면
+        photoFrameNode?.apply {
 
-                val cameraNode = binding.sceneView.cameraNode
-                //플레인 추출하기
-                val planeObj = frame?.getUpdatedTrackables(Plane::class.java)?.iterator()
+            val cameraNode = binding.sceneView.cameraNode
+            //플레인 추출하기
+            val planeObj = frame?.getUpdatedTrackables(Plane::class.java)?.iterator()
 
-                while(planeObj?.hasNext() == true) {
-                    val plane = planeObj.next() as Plane
+            while (planeObj?.hasNext() == true) {
+                val plane = planeObj.next() as Plane
 
-                    if (plane.trackingState == TrackingState.TRACKING) {
+                if (plane.trackingState == TrackingState.TRACKING) {
 
-                        if (isVertical) {
+                    if (isVertical) {
 //                            //플레인이 벽에 생길경우
-                            val rotationOrder = RotationsOrder.ZYX
-//
-                            val cameraAngle = eulerAngles(
-                                cameraNode.quaternion,
-                                rotationOrder
-                            ) //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+
 //                            //좌표는 노드가 아닌 디바이스의 기준이다.
 //
 //                            val hitResult3 = hasTestIterator.iterator()
@@ -376,16 +372,21 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 //                                    z = if (hitResultRota.x < 0) cameraAngle.z + 180f else cameraAngle.z,
 //                                )
 //                            }
-                            if (hasTestIterator?.hasNext() == true) {
-                                val hitResult3 = hasTestIterator.iterator()
+                        if (hasTestIterator?.hasNext() == true) {
 
-                                val hitResult = hitResult3.next()
+                            val hitResult = hasTestIterator.next()
 
-                                val hitPose = hitResult.hitPose
+                            val hitPose = hitResult.hitPose
 
-                                val planePose = plane.centerPose
 
-                                position = hitPose.position
+//                                val planePose = plane.subsumedBy?.
+
+
+//                                hitPose.rotateVector(floatArray)
+//
+
+
+//                                position = hitPose.position
 
 //                                quaternion = com.google.ar.sceneform.math.Quaternion.multiply(
 //                                    Quaternion(
@@ -401,79 +402,103 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 ////                                        w = cameraNode.quaternion.w
 //                                    ).toEulerAngles().toQuaternion(RotationsOrder.XZY).toOldQuaternion()
 //                                ).toNewQuaternion()
-                                //XYZ XZY YXZ YZX ZXY ZYX
+                            //XYZ XZY YXZ YZX ZXY ZYX
+                            val rotationOrder = RotationsOrder.ZXY
+//
+                            //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+                            // TODO: 회전값만 해결하면 끝
+                            val cameraAngle = eulerAngles(
+                                cameraNode.quaternion,
+                                rotationOrder
+                            )
+                            lookTowards(
+                                lookDirection = hitPose.yDirection
+                            )
+//                            lookTowards(
+//                                lookDirection = plane.subsumedBy?.centerPose?.yDirection ?: plane.centerPose.yDirection
+//                            )
+
+                            Log.d("와이", plane.centerPose.yDirection.toString())
 
 
-                                // TODO: 제일 가까운 평면을 대상으로 풀어나가면 되는데.. 그게 어렵다.. 
-                                lookTowards(lookDirection = plane.centerPose.yDirection)
+//                            val q1 = quaternion.toOldQuaternion()
+//                            val q2 = com.google.ar.sceneform.math.Quaternion.axisAngle(
+//                                Vector3(
+//                                    0f,
+//                                    0f,
+//                                    1f
+//                                ), cameraAngle.z
+//                            )
+//
+//                            Log.d("제트", cameraAngle.z.toString())
+//
+//
+//                            quaternion = com.google.ar.sceneform.math.Quaternion.multiply(q1, q2)
+//                                .toNewQuaternion()
 
-                                rotation = Rotation(
-                                    z = cameraAngle.z
-                                )
+
 //                                lookAt(plane.c, upDirection = Direction(y = 1.0f))
 
-                            }
-                        } else {
-                            //플레인이 수평면에 생길경우
-                            //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
-                            val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
-                            //좌표는 노드가 아닌 디바이스의 기준이다.
-                            rotation = Rotation(
-                                x = -90f,
-                                y = cameraAngle.z + cameraAngle.y,
-                                z = 0f
-                            )
-
-                            val screenPoint = binding.sceneView
-                            val ray = cameraNode.screenPointToRay(
-                                (screenPoint.width / 2).toFloat(),
-                                (screenPoint.height / 2).toFloat()
-                            )
-                            position = ray?.getPoint(1f)?.toFloat3()!!
                         }
-
-
+                    } else {
+                        //플레인이 수평면에 생길경우
+                        //RotationOrder = > 오일러각도 축의 우선순위를 둔다. Y를 우선순위
+                        val cameraAngle = eulerAngles(cameraNode.quaternion, RotationsOrder.YXZ)
+                        //좌표는 노드가 아닌 디바이스의 기준이다.
+                        rotation = Rotation(
+                            x = -90f,
+                            y = cameraAngle.z + cameraAngle.y,
+                            z = 0f
+                        )
                     }
+
+                    val screenPoint = binding.sceneView
+                    val ray = cameraNode.screenPointToRay(
+                        (screenPoint.width / 2).toFloat(),
+                        (screenPoint.height / 2).toFloat()
+                    )
+                    position = ray?.getPoint(1f)?.toFloat3()!!
                 }
-
-                //점 노드 찍기
-
-                lifecycleScope.launch {
-                    launch {
-                        //왼쪽 위 점
-                        setPointNode(
-                            pointNode = leftTopNode,
-                            pos = Position(x = -0.00076f, y = 0.00076f, z = 0.005f),
-                            movingPoint = binding.leftTopPointUi
-                        )
-                    }
-                    launch {
-                        //오른쪽 위 점
-                        setPointNode(
-                            pointNode = rightTopNode,
-                            pos = Position(x = 0.00073f, y = 0.00076f, z = 0.005f),
-                            movingPoint = binding.rightTopPointUi
-                        )
-                    }
-                    launch {
-                        //왼쪽 아래 점
-                        setPointNode(
-                            pointNode = leftDownNode,
-                            pos = Position(x = -0.00076f, y = -0.00074f, z = 0.005f),
-                            movingPoint = binding.leftDownPointUi
-                        )
-                    }
-                    launch {
-                        //오른쪽 아래 점
-                        setPointNode(
-                            pointNode = rightDownNode,
-                            pos = Position(x = 0.00073f, y = -0.00074f, z = 0.005f),
-                            movingPoint = binding.rightDownPointUi
-                        )
-                    }
-                }
-
             }
+
+            //점 노드 찍기
+
+            lifecycleScope.launch {
+                launch {
+                    //왼쪽 위 점
+                    setPointNode(
+                        pointNode = leftTopNode,
+                        pos = Position(x = -0.00076f, y = 0.00076f, z = 0.005f),
+                        movingPoint = binding.leftTopPointUi
+                    )
+                }
+                launch {
+                    //오른쪽 위 점
+                    setPointNode(
+                        pointNode = rightTopNode,
+                        pos = Position(x = 0.00073f, y = 0.00076f, z = 0.005f),
+                        movingPoint = binding.rightTopPointUi
+                    )
+                }
+                launch {
+                    //왼쪽 아래 점
+                    setPointNode(
+                        pointNode = leftDownNode,
+                        pos = Position(x = -0.00076f, y = -0.00074f, z = 0.005f),
+                        movingPoint = binding.leftDownPointUi
+                    )
+                }
+                launch {
+                    //오른쪽 아래 점
+                    setPointNode(
+                        pointNode = rightDownNode,
+                        pos = Position(x = 0.00073f, y = -0.00074f, z = 0.005f),
+                        movingPoint = binding.rightDownPointUi
+                    )
+                }
+            }
+
+        }
     }
 
     //포인트 노드 부모 노드안에서 원하는 위치에 렌더 시키기

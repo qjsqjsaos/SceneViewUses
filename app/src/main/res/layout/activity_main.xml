@@ -24,21 +24,21 @@
         android:id="@+id/right_top_point_ui"
         android:layout_width="8dp"
         android:layout_height="8dp"
-        android:background="@drawable/circle"
+        android:background="@drawable/circle2"
         />
 
     <View
         android:id="@+id/left_down_point_ui"
         android:layout_width="8dp"
         android:layout_height="8dp"
-        android:background="@drawable/circle"
+        android:background="@drawable/circle3"
         />
 
     <View
         android:id="@+id/right_down_point_ui"
         android:layout_width="8dp"
         android:layout_height="8dp"
-        android:background="@drawable/circle"
+        android:background="@drawable/circle4"
         />
 
 

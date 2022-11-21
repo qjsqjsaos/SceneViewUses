@@ -14,6 +14,7 @@
         android:layout_height="match_parent" />
 
     <View
+        android:layout_gravity="center_vertical"
         android:id="@+id/left_top_point_ui"
         android:layout_width="8dp"
         android:layout_height="8dp"

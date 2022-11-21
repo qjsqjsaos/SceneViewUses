@@ -13,6 +13,7 @@ import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 
@@ -27,6 +28,7 @@ import dev.romainguy.kotlin.math.*
 import io.github.sceneview.ar.ArSceneView
 import io.github.sceneview.ar.arcore.*
 import io.github.sceneview.math.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.LoaderCallbackInterface
@@ -372,73 +374,45 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 //                                    z = if (hitResultRota.x < 0) cameraAngle.z + 180f else cameraAngle.z,
 //                                )
 //                            }
-                        if (hasTestIterator?.hasNext() == true) {
-
-                            val hitResult = hasTestIterator.next()
-
-                            val hitPose = hitResult.hitPose
 
 
-//                                val planePose = plane.subsumedBy?.
+                        while (hasTestIterator?.hasNext() == true) {
+                                val hitResult = hasTestIterator.next()
 
+                                val hitPose = hitResult.hitPose
 
-//                                hitPose.rotateVector(floatArray)
-//
+                                val yDirection = hitPose.yDirection
 
-
-//                                position = hitPose.position
-
-//                                quaternion = com.google.ar.sceneform.math.Quaternion.multiply(
-//                                    Quaternion(
-//                                        x = 90f,
-//                                        y = planePose.quaternion.y,
-////                                        z = planePose.quaternion.z,
-////                                        w = planePose.quaternion.w
-//                                    ).toOldQuaternion(),
-//                                    Quaternion(
-//                                        x = cameraNode.quaternion.x,
-//                                        y = cameraNode.quaternion.y,
-//                                        z = cameraNode.quaternion.z,
-////                                        w = cameraNode.quaternion.w
-//                                    ).toEulerAngles().toQuaternion(RotationsOrder.XZY).toOldQuaternion()
-//                                ).toNewQuaternion()
-                            //XYZ XZY YXZ YZX ZXY ZYX
-                            val rotationOrder = RotationsOrder.ZXY
-//
-                            //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
-                            // TODO: 회전값만 해결하면 끝
-                            val cameraAngle = eulerAngles(
-                                cameraNode.quaternion,
-                                rotationOrder
-                            )
                             lookTowards(
-                                lookDirection = hitPose.yDirection
+                                lookDirection = yDirection
                             )
+                            // TODO: 방향은 완벽히 맞는데, 이렇게 진행하면 ui가 사라진다.. 방법 찾아보기 
+                                //XYZ XZY YXZ YZX ZXY ZYX
+                                val rotationOrder = RotationsOrder.ZXY
+//
+                                //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+                                val cameraAngle = eulerAngles(
+                                    cameraNode.quaternion,
+                                    rotationOrder
+                                )
+
 //                            lookTowards(
 //                                lookDirection = plane.subsumedBy?.centerPose?.yDirection ?: plane.centerPose.yDirection
 //                            )
 
-                            Log.d("와이", plane.centerPose.yDirection.toString())
+                            val q1 = quaternion.toOldQuaternion()
+                            val q2 = com.google.ar.sceneform.math.Quaternion.axisAngle(
+                                Vector3(
+                                    0f,
+                                    0f,
+                                    1f
+                                ), cameraAngle.z
+                            )
 
-
-//                            val q1 = quaternion.toOldQuaternion()
-//                            val q2 = com.google.ar.sceneform.math.Quaternion.axisAngle(
-//                                Vector3(
-//                                    0f,
-//                                    0f,
-//                                    1f
-//                                ), cameraAngle.z
-//                            )
-//
-//                            Log.d("제트", cameraAngle.z.toString())
-//
-//
-//                            quaternion = com.google.ar.sceneform.math.Quaternion.multiply(q1, q2)
-//                                .toNewQuaternion()
-
-
-//                                lookAt(plane.c, upDirection = Direction(y = 1.0f))
-
+                            quaternion =
+                                com.google.ar.sceneform.math.Quaternion.multiply(q1, q2)
+                                    .toNewQuaternion()
+                            break
                         }
                     } else {
                         //플레인이 수평면에 생길경우
@@ -460,44 +434,31 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
                     position = ray?.getPoint(1f)?.toFloat3()!!
                 }
             }
-
-            //점 노드 찍기
-
-            lifecycleScope.launch {
-                launch {
-                    //왼쪽 위 점
-                    setPointNode(
-                        pointNode = leftTopNode,
-                        pos = Position(x = -0.00076f, y = 0.00076f, z = 0.005f),
-                        movingPoint = binding.leftTopPointUi
-                    )
-                }
-                launch {
-                    //오른쪽 위 점
-                    setPointNode(
-                        pointNode = rightTopNode,
-                        pos = Position(x = 0.00073f, y = 0.00076f, z = 0.005f),
-                        movingPoint = binding.rightTopPointUi
-                    )
-                }
-                launch {
-                    //왼쪽 아래 점
-                    setPointNode(
-                        pointNode = leftDownNode,
-                        pos = Position(x = -0.00076f, y = -0.00074f, z = 0.005f),
-                        movingPoint = binding.leftDownPointUi
-                    )
-                }
-                launch {
-                    //오른쪽 아래 점
-                    setPointNode(
-                        pointNode = rightDownNode,
-                        pos = Position(x = 0.00073f, y = -0.00074f, z = 0.005f),
-                        movingPoint = binding.rightDownPointUi
-                    )
-                }
-            }
-
+                //점 노드 찍기
+                //왼쪽 위 점
+                setPointNode(
+                    pointNode = leftTopNode,
+                    pos = Position(x = -0.00076f, y = 0.00076f, z = 0.005f),
+                    movingPoint = binding.leftTopPointUi
+                )
+                //오른쪽 위 점
+                setPointNode(
+                    pointNode = rightTopNode,
+                    pos = Position(x = 0.00073f, y = 0.00076f, z = 0.005f),
+                    movingPoint = binding.rightTopPointUi
+                )
+                //왼쪽 아래 점
+                setPointNode(
+                    pointNode = leftDownNode,
+                    pos = Position(x = -0.00076f, y = -0.00074f, z = 0.005f),
+                    movingPoint = binding.leftDownPointUi
+                )
+                //오른쪽 아래 점
+                setPointNode(
+                    pointNode = rightDownNode,
+                    pos = Position(x = 0.00073f, y = -0.00074f, z = 0.005f),
+                    movingPoint = binding.rightDownPointUi
+                )
         }
     }
 
@@ -508,6 +469,9 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
         pos: Position,
         movingPoint: View
     ) {
+
+        Log.d("포인트", pointNode.toString())
+
         //노드 위치 설정 및 부모 노드 설정
         pointNode?.apply {
             worldPosition = parentNode?.worldPosition!!

@@ -19,6 +19,7 @@ import com.bumptech.glide.Glide
 
 import com.google.ar.core.Config
 import com.google.ar.core.Plane
+import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
 import com.google.ar.sceneform.math.Vector3
 import com.sooyeol.sceneviewuses.databinding.ActivityMainBinding
@@ -40,6 +41,7 @@ import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.util.*
+import kotlin.math.abs
 
 
 class MainActivity : AppCompatActivity(), OnFrameListener {
@@ -376,43 +378,44 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 //                            }
 
 
-                        while (hasTestIterator?.hasNext() == true) {
-                                val hitResult = hasTestIterator.next()
+                        if (hasTestIterator?.hasNext() == true) {
 
-                                val hitPose = hitResult.hitPose
+                            val hitResult = hasTestIterator.next()
 
-                                val yDirection = hitPose.yDirection
+                            val hitPose = hitResult.hitPose
 
-                            lookTowards(
-                                lookDirection = yDirection
-                            )
-                            // TODO: 방향은 완벽히 맞는데, 이렇게 진행하면 ui가 사라진다.. 방법 찾아보기 
-                                //XYZ XZY YXZ YZX ZXY ZYX
-                                val rotationOrder = RotationsOrder.ZXY
+                            val yDirection = hitPose.yDirection
 //
-                                //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
-                                val cameraAngle = eulerAngles(
-                                    cameraNode.quaternion,
-                                    rotationOrder
-                                )
+                            val rotationOrder = RotationsOrder.ZXY
+////
+//                                //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+                            val cameraAngle = eulerAngles(
+                                cameraNode.quaternion,
+                                rotationOrder
+                            )
 
-//                            lookTowards(
-//                                lookDirection = plane.subsumedBy?.centerPose?.yDirection ?: plane.centerPose.yDirection
-//                            )
+                            // TODO: yDirection을 음수 양수로 나누어 넣는다.
 
-                            val q1 = quaternion.toOldQuaternion()
+                            val newQuaternion = lookTowards(
+                                cameraNode.worldPosition,
+                                Direction(x = yDirection.x, y = abs(yDirection.y), z = yDirection.z),
+                                up = Direction(x = 1.0f)
+                            ).toQuaternion()
+
                             val q2 = com.google.ar.sceneform.math.Quaternion.axisAngle(
                                 Vector3(
                                     0f,
                                     0f,
-                                    1f
-                                ), cameraAngle.z
+                                    -1f
+                                ), cameraAngle.z + 90f
                             )
 
-                            quaternion =
-                                com.google.ar.sceneform.math.Quaternion.multiply(q1, q2)
-                                    .toNewQuaternion()
-                            break
+//                            lookAt(cameraNode)
+
+                            Log.d("제트", (yDirection).toString())
+
+                            transform(quaternion = com.google.ar.sceneform.math.Quaternion.multiply(newQuaternion.toOldQuaternion(), q2)
+                                .toNewQuaternion())
                         }
                     } else {
                         //플레인이 수평면에 생길경우
@@ -434,31 +437,31 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
                     position = ray?.getPoint(1f)?.toFloat3()!!
                 }
             }
-                //점 노드 찍기
-                //왼쪽 위 점
-                setPointNode(
-                    pointNode = leftTopNode,
-                    pos = Position(x = -0.00076f, y = 0.00076f, z = 0.005f),
-                    movingPoint = binding.leftTopPointUi
-                )
-                //오른쪽 위 점
-                setPointNode(
-                    pointNode = rightTopNode,
-                    pos = Position(x = 0.00073f, y = 0.00076f, z = 0.005f),
-                    movingPoint = binding.rightTopPointUi
-                )
-                //왼쪽 아래 점
-                setPointNode(
-                    pointNode = leftDownNode,
-                    pos = Position(x = -0.00076f, y = -0.00074f, z = 0.005f),
-                    movingPoint = binding.leftDownPointUi
-                )
-                //오른쪽 아래 점
-                setPointNode(
-                    pointNode = rightDownNode,
-                    pos = Position(x = 0.00073f, y = -0.00074f, z = 0.005f),
-                    movingPoint = binding.rightDownPointUi
-                )
+            //점 노드 찍기
+            //왼쪽 위 점
+            setPointNode(
+                pointNode = leftTopNode,
+                pos = Position(x = -0.00076f, y = 0.00076f, z = 0.005f),
+                movingPoint = binding.leftTopPointUi
+            )
+            //오른쪽 위 점
+            setPointNode(
+                pointNode = rightTopNode,
+                pos = Position(x = 0.00073f, y = 0.00076f, z = 0.005f),
+                movingPoint = binding.rightTopPointUi
+            )
+            //왼쪽 아래 점
+            setPointNode(
+                pointNode = leftDownNode,
+                pos = Position(x = -0.00076f, y = -0.00074f, z = 0.005f),
+                movingPoint = binding.leftDownPointUi
+            )
+            //오른쪽 아래 점
+            setPointNode(
+                pointNode = rightDownNode,
+                pos = Position(x = 0.00073f, y = -0.00074f, z = 0.005f),
+                movingPoint = binding.rightDownPointUi
+            )
         }
     }
 

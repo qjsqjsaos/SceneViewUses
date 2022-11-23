@@ -385,10 +385,9 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
                             val hitPose = hitResult.hitPose
 
                             val yDirection = hitPose.yDirection
-//
-                            val rotationOrder = RotationsOrder.ZYX
-////
-//                                //XYZ XZY YXZ YZX ZXY ZYX  ***YXZ y = cameraAngle.y , z = cameraAngle.z
+
+                            val rotationOrder = RotationsOrder.YXZ
+
                             val cameraAngle = eulerAngles(
                                 cameraNode.quaternion,
                                 rotationOrder
@@ -396,36 +395,26 @@ class MainActivity : AppCompatActivity(), OnFrameListener {
 
                             val newQuaternion = lookTowards(
                                 cameraNode.worldPosition,
-//                                Direction(x = yDirection.x, y = yDirection.y, z = abs(yDirection.z)),
                                 -yDirection,
-                                up = Direction(x = if(yDirection.z > 0) -1.0f else 1.0f)
+                                up = Direction(x = if (yDirection.z > 0) -1.0f else 1.0f)
                             ).toQuaternion()
 
-                           transform(quaternion = newQuaternion)
 
-//                            val mat4 = lookTowards(
-//                                eye = cameraNode.worldPosition,
-//                                forward = yDirection,
-//                                up = Direction(x = 1.0f)
-//                            )
+                            val q2 = com.google.ar.sceneform.math.Quaternion.axisAngle(
+                                Vector3(
+                                    0f,
+                                    0f,
+                                    1f
+                                ), cameraAngle.z - 90f
+                            )
 
-
-
-//                            val q2 = com.google.ar.sceneform.math.Quaternion.axisAngle(
-//                                Vector3(
-//                                    0f,
-//                                    0f,
-//                                    1f
-//                                ), cameraAngle.z + 90f
-//                            )
-////
-//////                            lookAt(cameraNode)
-////
-//                            Log.d("제트", (yDirection).toString())
-//
-//                            transform(quaternion =
-//                            com.google.ar.sceneform.math.Quaternion.multiply(newQuaternion.toOldQuaternion(), q2).toNewQuaternion()
-//                            )
+                            transform(
+                                quaternion =
+                                com.google.ar.sceneform.math.Quaternion.multiply(
+                                    newQuaternion.toOldQuaternion(),
+                                    q2
+                                ).toNewQuaternion()
+                            )
                         }
                     } else {
                         //플레인이 수평면에 생길경우
